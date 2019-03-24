@@ -4,7 +4,8 @@ FROM jupyter/base-notebook
 USER root
 
 #https://www.kaggle.com/dierickx3/kaggle-web-scraping-via-headless-firefox-selenium
-RUN apt-get update libgtk-3-0 libdbus-glib-1-2 xvfb \
+RUN apt-get update \
+    && apt-get install -y libgtk-3-0 libdbus-glib-1-2 xvfb \
     && apt-get install -y firefox \
     && apt-get clean
 ENV DISPLAY=":99"
