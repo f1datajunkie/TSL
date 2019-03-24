@@ -5,7 +5,7 @@ FROM jupyter/base-notebook
 #We need to install some Linux packages
 USER root
 
-#Using Selenium to automate a firefox or chromebrowser needs geckodriver in place
+#Using Selenium to automate a firefox or chrome browser needs geckodriver in place
 ARG GECKO_VAR=v0.23.0
 RUN wget https://github.com/mozilla/geckodriver/releases/download/$GECKO_VAR/geckodriver-$GECKO_VAR-linux64.tar.gz
 RUN tar -x geckodriver -zf geckodriver-$GECKO_VAR-linux64.tar.gz -O > /usr/bin/geckodriver
@@ -23,6 +23,7 @@ ENV DISPLAY=":99"
 
 #Copy repo files over
 COPY ./notebooks ${HOME}/work
+#And make sure they are owned by the notebook user...
 RUN chown -R ${NB_USER} ${HOME}
 
 #Reset the container user back to the notebook user
