@@ -16,6 +16,11 @@ RUN apt-get update \
     && apt-get clean
 ENV DISPLAY=":99"
 
+
+#Copy repo files over
+COPY ./notebooks ${HOME}/work
+RUN chown -R ${NB_USER} ${HOME}
+
 USER $NB_UID
 
 #There is also a Python package for installing geckodriver
