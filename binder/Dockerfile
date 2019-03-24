@@ -3,6 +3,8 @@ FROM jupyter/base-notebook
 #Via https://jpmelos.com/articles/how-use-chrome-selenium-inside-docker-container-running-python/
 
 # Install Chrome for Selenium
+RUN apt-get update && apt-get install -y curl && apt-get clean
+
 RUN curl https://dl.google.com/linux/direct/google-chrome-stable_current_amd64.deb -o /chrome.deb
 RUN dpkg -i /chrome.deb || apt-get install -yf
 RUN rm /chrome.deb
