@@ -3,7 +3,7 @@ FROM jupyter/base-notebook
 
 USER root
 
-RUN GECKO_VAR=v0.23.0
+ARG GECKO_VAR=v0.23.0
 RUN wget https://github.com/mozilla/geckodriver/releases/download/$GECKO_VAR/geckodriver-$GECKO_VAR-linux64.tar.gz
 RUN tar -x geckodriver -zf geckodriver-$GECKO_VAR-linux64.tar.gz -O > /usr/bin/geckodriver
 RUN chmod +x /usr/bin/geckodriver
