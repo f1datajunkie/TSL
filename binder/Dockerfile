@@ -25,6 +25,7 @@ ENV DISPLAY=":99"
 COPY ./notebooks ${HOME}/work
 RUN chown -R ${NB_USER} ${HOME}
 
+#Reset the container user back to the notebook user
 USER $NB_UID
 
 #Install Selenium python package
