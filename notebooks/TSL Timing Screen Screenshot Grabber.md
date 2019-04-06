@@ -354,7 +354,12 @@ while race_on and awaiting_result:
 
 fn = '{}_{}.png'.format(series, session )
 
-getPageByTab(browser, url, 'Classification', fn)
+
+#Don't need to get the URL? Just dump the screenshot instead?
+#Browser is already good and if meeting is busy we may not be able to get a new connection onto timing screen?
+#getPageByTab(browser, url, 'Classification', fn)
+
+browser.save_screenshot( fn )
 ```
 
 # Emailing the screenshot
