@@ -331,6 +331,11 @@ race_on = True #if race is running or flagged?
 awaiting_result=True
 
 while race_on and awaiting_result:
+    
+    #Better to use some heuristics here eg based on time left in sessiontime
+    #Only issue there is if a race is red flagged so is race clock/sessionTime?
+    #So maybe try to grab close race start time, ish, and sessionTime at that point
+    #and generate a heuristic about earliest time race is expected to finish?
     time.sleep(5)
     flag = text_value_from_xpath(browser, flag_path )
     
