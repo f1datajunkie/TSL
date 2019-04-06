@@ -130,6 +130,64 @@ print('screenshot saved to {}'.format(ofn))
 Image(ofn)
 ```
 
+### Grab some metadata
+
+The timing screen includes information about the race series and the session the timing screen relates to. We can pull that data out of the timing screen to act as metadata.
+
+```python
+#https://stackoverflow.com/a/12150013/454773
+from selenium.common.exceptions import NoSuchElementException
+
+def check_exists_by_xpath(driver, xpath):
+    try:
+        driver.find_element_by_xpath(xpath)
+    except NoSuchElementException:
+        return False
+    return True
+
+def text_value_from_xpath(driver, xpath):
+    try:
+        el = driver.find_element_by_xpath(xpath)
+    except NoSuchElementException:
+        return None
+    return el.text
+
+#check_exists_by_xpath(browser, '//*[@id="currentflag"]')
+```
+
+```python
+#Let's use the classification screen as our "base" screen
+tabId='Classification'
+element = browser.find_element_by_id(tabId)
+element.click()
+element = WebDriverWait(browser, 10).until( EC.visibility_of_element_located((By.ID, tabId)))
+
+```
+
+Get the series name:
+
+```python
+series_path='//*[@id="seriesName"]/span[2]'
+
+series = text_value_from_xpath(browser, series_path)
+series
+```
+
+And the session:
+
+```python
+session_path = '//*[@id="sessionName"]/span[2]'
+session = text_value_from_xpath(browser, session_path )
+session
+```
+
+We could use this information to give us meaningful filenames when we save timing screen images or data.
+
+
+### Grabbing Images of the Timing Screen
+
+We can create a simple function to use *selenium* to grab png screenshots of a particular tab on the timing screen.
+
 ```python
 def getPageByTab(browser,url, tabId='Classification', ofn=None):
     ''' Simple function to view a particular tab within a TSL timing screen. '''
@@ -151,6 +209,69 @@ url = 'https://livetiming.tsl-timing.com/191209'
 getPageByTab(browser, url, 'Classification')
 ```
 
+We could create a meaningful filname from the series and session metadata. For example:
+
+```python
+#get file name
+fn = '{}_{}.png'.format(series, session )
+
+getPageByTab(browser, url, 'Classification', fn)
+```
+
+We can get also access to the actual HTML via the element's `innerHTML()` attribute:
+
+`el.get_attribute('innerHTML')`
+
+If we grab the `<table>` element, this actually returns the contents contained *within* the table element, so we would need to recreate the outer `<table>` tag before we try to scrape the table data into a *pandas* dataframe. If we grab a `<div>` element that contains the table, we can scrape it directly into a *pandas* dataframe.
+
+```python
+#classification data
+xpath = '//*[@id="ResultsTableContainer"]'
+el = browser.find_element_by_xpath(xpath)
+```
+
+```python
+import pandas as pd
+
+df = pd.read_html( el.get_attribute('innerHTML'))[0].dropna(axis=1,how='all')
+df.head()
+```
+
+We can then easily save the dataframe to a CSV file:
+
+```python
+df.to_csv('test1.csv')
+```
+
+#### Saving the Data to a Database
+We can also save the data into a SQLite database.
+
+There are several ways of doing this, of varying degrees of casulaness. The simplest way might be to create a separte table for each race (that is, each series and session combination) but that would explode the number of tables.
+
+If we want to use fewer tables, then we need to know which series/session timing screens are alike (that is, have the same format / columns). It may be that all the sreens are the same, or it may be that practice, qualifying and race screens show different information. We would also need to check whether each series records the same columns in the timing screen if we are to have a single table for "race" data for example.
+
+Also note that we would need to add some columns to the table if we are including data from mutliple series and/or sessions in the same table to identify which series/session any particular row in the table refers to.
+
+```python
+import sqlite3
+conn = sqlite3.connect("test.db")
+df.to_sql('test1', con=conn, index=False, if_exists='replace')
+```
+
+We can now query the data:
+
+```python
+sql = 'SELECT * FROM test1 LIMIT 3'
+pd.read_sql_query(sql, conn)
+```
+
+Note that we might also want to think about defining the database columns more formally if we know the structure of the timing screen data we want to record.
+
+
+## Viewing Other Tabs
+
+We can also grab data from tabs other than the *Classification* tab:
+
 ```python
 getPageByTab(browser, url, 'Statistics')
 ```
@@ -164,15 +285,7 @@ el.text
 #'Competitors: 30\nPlanned Start: 15:10\nActual Start: 15:25:00.510\nFinish Time:\nTotal Laps 107\nTotal Distance Covered: 129.2501 mi.\nTrack Length: 1.2079 mi.'
 ```
 
-We can get access to the actual HTML via the element's `innerHTML()` attribute:
-
-`el.get_attribute('innerHTML')`
-
-This returns the contents contained *within* the table element, so we need to recreate the outer `<table>` tag before we try to scrape the table data into a *pandas* dataframe:
-
 ```python
-import pandas as pd
-
 pd.read_html( '<table>{}</table>'.format(el.get_attribute('innerHTML')))[0].dropna(axis=1,how='all')
 ```
 
@@ -212,58 +325,12 @@ el.text
 pd.read_html( '<table>{}</table>'.format(el.get_attribute('innerHTML')))[0].dropna(axis=1,how='all')
 ```
 
-### Grab some metadata
-
-```python
-#https://stackoverflow.com/a/12150013/454773
-from selenium.common.exceptions import NoSuchElementException
-
-def check_exists_by_xpath(driver, xpath):
-    try:
-        driver.find_element_by_xpath(xpath)
-    except NoSuchElementException:
-        return False
-    return True
-
-def text_value_from_xpath(driver, xpath):
-    try:
-        el = driver.find_element_by_xpath(xpath)
-    except NoSuchElementException:
-        return None
-    return el.text
-
-#check_exists_by_xpath(browser, '//*[@id="currentflag"]')
-```
-
-### Classification
-
-```python
-tabId='Classification'
-element = browser.find_element_by_id(tabId)
-element.click()
-element = WebDriverWait(browser, 10).until( EC.visibility_of_element_located((By.ID, tabId)))
-
-```
-
-```python
-series_path='//*[@id="seriesName"]/span[2]'
-
-series = text_value_from_xpath(browser, series_path)
-series
-```
-
 ```python
 #Red flag
 #//*[@id="currentflag"]
 flag_path='//*[@id="currentflag"]'
 flag = text_value_from_xpath(browser, flag_path )
 flag
-```
-
-```python
-session_path = '//*[@id="sessionName"]/span[2]'
-session = text_value_from_xpath(browser, session_path )
-session
 ```
 
 ```python
