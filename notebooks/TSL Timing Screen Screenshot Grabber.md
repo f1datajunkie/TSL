@@ -30,7 +30,9 @@ A simple script to grab a screenshot of a TSL Timing screen.
 
 ## Set up a browser instance
 
-We can create a headless browser (one that doesnlt need to open in a window that we can see) that we can load pages into and grab screenshots from.
+We can create a headless browser (one that doesn't need to open in a window that we can see) that we can load pages into and grab screenshots from. As we are running an actual browser, if the web page is being updated via a websocket connection, our remotely launched browser will be being updated with the socket connection data.
+
+So once we lauch our browser onto a timing screen, we can just keep referencing the browser to get the latest view of the page...
 
 ```python
 from selenium import webdriver
