@@ -132,6 +132,7 @@ Image(ofn)
 
 ```python
 def getPageByTab(browser,url, tabId='Classification', ofn=None):
+    ''' Simple function to view a particular tab within a TSL timing screen. '''
 
     element = browser.find_element_by_id(tabId)
     element.click()
