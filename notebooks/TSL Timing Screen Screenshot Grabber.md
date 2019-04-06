@@ -164,12 +164,28 @@ el.text
 #'Competitors: 30\nPlanned Start: 15:10\nActual Start: 15:25:00.510\nFinish Time:\nTotal Laps 107\nTotal Distance Covered: 129.2501 mi.\nTrack Length: 1.2079 mi.'
 ```
 
+We can get access to the actual HTML via the element's `innerHTML()` attribute:
+
+`el.get_attribute('innerHTML')`
+
+This returns the contents contained *within* the table element, so we need to recreate the outer `<table>` tag before we try to scrape the table data into a *pandas* dataframe:
+
+```python
+import pandas as pd
+
+pd.read_html( '<table>{}</table>'.format(el.get_attribute('innerHTML')))[0].dropna(axis=1,how='all')
+```
+
 ```python
 #Flags table
 xpath = '//*[@id="StatsTableContainer"]/div[3]/div[1]/table[1]'
 el = browser.find_element_by_xpath(xpath)
 el.text
 #'COLOUR TOTAL TIME TOTAL LAPS COUNT\nGREEN 00:05:45 5 1\nRED 00:00:29 0 1\nSAFETY CAR 00:00:00 0 0\nFCY 00:00:00 0 0'
+```
+
+```python
+pd.read_html( '<table>{}</table>'.format(el.get_attribute('innerHTML')))[0].dropna(axis=1,how='all')
 ```
 
 ```python
@@ -180,15 +196,7 @@ el.text
 #'NO CL NAME TIME TIME OF DAY LAP AVG. SPEED (MPH) VEHICLE\n15\nM\nOLIPHANT * 54.140 15:29:02.984 4 80.32 BMW 330i M Sport\n116\nM\nSUTTON 54.685 15:28:24.626 3 79.52 Subaru Levorg\n25\nM\nNEAL 54.983 15:28:18.112 3 79.08 Honda Civic Type R\n1\nM\nTURKINGTON 55.127 15:28:07.375 3 78.88 BMW 330i M Sport\n303\nI\nSIMPSON 55.228 15:27:58.303 2 78.73 Honda CIvic Type R\n80\nM\nINGRAM 55.449 15:27:17.128 2 78.42 Toyota Corolla\n77\nM\nJORDAN 56.278 15:27:14.039 2 77.27 BMW 330i M Sport\n15\nM\nOLIPHANT * 56.858 15:27:13.242 2 76.48 BMW 330i M Sport\n1\nM\nTURKINGTON 57.049 15:27:12.248 2 76.22 BMW 330i M Sport'
 ```
 
-We can get access to the actual HTML via the element's `innerHTML()` attribute:
-
-`el.get_attribute('innerHTML')`
-
-This returns the contents contained *within* the table element, so we need to recreate the outer `<table>` tag before we try to scrape the table data into a *pandas* dataframe:
-
 ```python
-import pandas as pd
-
 pd.read_html( '<table>{}</table>'.format(el.get_attribute('innerHTML')))[0].dropna(axis=1,how='all')
 ```
 
