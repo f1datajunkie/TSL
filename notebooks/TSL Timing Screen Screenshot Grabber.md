@@ -12,7 +12,7 @@ jupyter:
     name: python3
 ---
 
-# TMS Timing Screen Screenshot Grabber
+# TSL Timing Screen Screenshot Grabber
 
 
 A simple script to grab a screenshot of a TSL Timing screen.
