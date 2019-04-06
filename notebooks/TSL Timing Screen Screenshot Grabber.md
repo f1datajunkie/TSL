@@ -316,6 +316,7 @@ The aim here is to grab a copy of the screen classification when the race has fi
 #RUNNING
 #RED FLAG
 #Scheduled Start: 16.55
+#Safety Car
 ```
 
 ```python
