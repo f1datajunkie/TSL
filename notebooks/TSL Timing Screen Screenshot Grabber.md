@@ -297,6 +297,9 @@ The aim here is to grab a copy of the screen classification when the race has fi
 
 (How is finished flagged? Eg if the clock has reached zero do cars get to finish the lap they are on? At what point does "FINISHED" appear?)
 
+
+*(If we want to run browsers over several timing screens, eg for different meetings on the same day, it may be worth looking to something like https://github.com/micahscopes/nbmultitask so we could launch several watchers, one per timing screen, in separate, non-blocking processes.)*
+
 ```python
 #flag status is something like"
 
