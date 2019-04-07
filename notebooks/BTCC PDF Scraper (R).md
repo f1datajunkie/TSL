@@ -138,6 +138,9 @@ extract_tables("2019/191403cli.pdf", pages=3, output="data.frame")
 
 There is also an `output = "csv"` option to write data out to a CSV file.
 
+
+By the by, we can use the `reticulate` package to allow us to wrangle the dataframe as a Python *pandas* dataframe rather than an R `data.frame`.
+
 ```R
 #We can see how this looks as a pandas dataframe
 library(reticulate)
@@ -147,15 +150,24 @@ r_to_py(df, convert=T)
 #I can't really remember how to work with py in R under reticulate!
 ```
 
+## Tidying Up Tables
+
+Some of the table extract quite cleanly:
+
 ```R
 extract_tables("2019/191403cli.pdf", pages = 4)
 ```
 
+Others may need cleaning, at least if we go with the guessed at settings.
+
+For example, the following table extraction does not separate out some of the sector times into separate columns:
+
 ```R
-#This sort of thing may need cleaning...
 t_n <- extract_tables("2019/191403cli.pdf", pages = 5:10)
 t_n
 ```
+
+### Using Explicit, Rather than Guessed At, Co-ordinate Values to Separate Columns
 
 We can pass in co-ordinatates to force particular column splits, telling `tabulizer` not to guess at the table columns and instead passing in explicit column co-ordinates. 
 
