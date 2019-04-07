@@ -15,7 +15,7 @@ jupyter:
 # BTCC PDF Scraper
 
 
-The python tabula wrapper doesnlt appear to work... so let's try the R one...
+The python tabula wrapper doesn't appear to work... so let's try the R one...
 
 ```R
 install.packages("tabulizer")
@@ -42,13 +42,17 @@ We can extract text from the PDFs using the `extract_text()` function:
 extract_metadata("2019/191403cli.pdf")
 ```
 
+We can use the `area=` parameter to specify `(top, left, bottom, right)` area co-ordinates within which `tabulizer` should look for the table information.
+
 ```R
 #Page header
 t = extract_text("2019/191403cli.pdf", pages = 13, area = list(c(0, 0, 120, 600)))
 cat(t)
 ```
 
-We can use the `area=` parameter to specify `(top, left, bottom, right)` area co-ordinates within which `tabulizer` should look for the table information.
+We can then grab the headings for each page. 
+
+*TO DO: split the lines on line breaks and make a dataframe of this?*
 
 ```R
 for (page in 1:extract_metadata("2019/191403cli.pdf")$pages){
@@ -57,14 +61,12 @@ for (page in 1:extract_metadata("2019/191403cli.pdf")$pages){
 }
 ```
 
+The page footer may also contain useful information:
+
 ```R
 #Page footer
 t = extract_text("2019/191403cli.pdf", pages = 9, area = list(c(760, 0, 1000, 600)))
 cat(t)
-```
-
-```R
-
 ```
 
 ## Extract Table Data
