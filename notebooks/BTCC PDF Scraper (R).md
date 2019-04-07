@@ -79,6 +79,31 @@ for (page in 1:extract_metadata(PDF)$pages){
 }
 ```
 
+Let's see if we can make a lookup table / dataframe for the sessions:
+
+```R
+details<-data.frame()
+for (page in 1:extract_metadata(PDF)$pages){
+    t <- extract_text(PDF, pages = page, area = list(c(0, 0, 120, 600)))
+    event <- strsplit(t, '\n')[[1]][1]
+    sessiondetail <- strsplit(t, '\n')[[1]][2]
+    sessiondetails <- rev(strsplit(sessiondetail, '-')[[1]])
+    report <- sessiondetails[1]
+    event <- sessiondetails[2]
+    if (length(sessiondetails)==3){
+        session <- sessiondetails[3]
+    } else {session <- 'RACE'}
+    
+    details <- rbind(details, data.frame(page, event, session, report))
+}
+
+na.omit(details)
+```
+
+```R
+sessiondetails
+```
+
 The page footer may also contain useful information:
 
 ```R
