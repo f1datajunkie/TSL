@@ -50,6 +50,18 @@ t = extract_text("2019/191403cli.pdf", pages = 13, area = list(c(0, 0, 120, 600)
 cat(t)
 ```
 
+Where the header is split over two lines, we can can split the string to access the separate components:
+
+```R
+paste(strsplit(t, '\n')[[1]][1], '*and*', strsplit(t, '\n')[[1]][2])
+```
+
+```R
+#What happens with the empy second item?
+t = extract_text("2019/191403cli.pdf", pages = 2, area = list(c(0, 0, 120, 600)))
+paste(strsplit(t, '\n')[[1]][1], '*and*', strsplit(t, '\n')[[1]][2])
+```
+
 We can then grab the headings for each page. 
 
 *TO DO: split the lines on line breaks and make a dataframe of this?*
