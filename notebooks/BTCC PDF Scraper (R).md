@@ -24,23 +24,125 @@ install.packages("tabulizer")
 ```R
 #sudo R CMD javareconf
 library("tabulizer")
-out1 <- extract_tables("2019/191403cli.pdf")
 ```
 
 ```R
-out1
+get_page_dims("2019/191403cli.pdf", pages=1)
 ```
 
 ```R
-#Need to  doc to get info about what's on each page
+#locate_areas("2019/191403cli.pdf", pages=1)
 ```
+
+## Extract Page Info
+
+We can extract text from the PDFs using the `extract_text()` function:
+
+```R
+extract_metadata("2019/191403cli.pdf")
+```
+
+```R
+#Page header
+t = extract_text("2019/191403cli.pdf", pages = 13, area = list(c(0, 0, 120, 600)))
+cat(t)
+```
+
+We can use the `area=` parameter to specify `(top, left, bottom, right)` area co-ordinates within which `tabulizer` should look for the table information.
+
+```R
+for (page in 1:extract_metadata("2019/191403cli.pdf")$pages){
+    cat( paste('Page', page, '-',
+               extract_text("2019/191403cli.pdf", pages = page, area = list(c(0, 0, 120, 600))), '\n' ))
+}
+```
+
+```R
+#Page footer
+t = extract_text("2019/191403cli.pdf", pages = 9, area = list(c(760, 0, 1000, 600)))
+cat(t)
+```
+
+```R
+
+```
+
+## Extract Table Data
+
+We can automatically extract data from tables, although:
+
+- it will need parsing within cell;
+- some rows may missed by the extractor(?).
+
+Some pages in the PDF report data as a list rather than a table, eg some of the statistics reports. These pages will need retrieving as text and then undergo some parsing, or will need to be scraped by a more structured scraper.
 
 ```R
 extract_tables("2019/191403cli.pdf", pages = 2)
 ```
 
 ```R
-extract_tables("2019/191403cli.pdf", pages = 3)
+t = extract_tables("2019/191403cli.pdf", pages = 3, area = list(c(0, 0, 595, 842)))
+t
+```
+
+The `tabulizer` table extractor returns the data as a list:
+
+```R
+typeof(t)
+```
+
+So let's instead put that into a more useful dataframe format.
+
+```R
+#Cast the list to a dataframe
+df = as.data.frame(t)
+
+#The first row, in this case, represents the column names
+colnames(df) <- as.character(unlist(df[1,]))
+
+#Remove the first row that contained the column names
+df <- df[-1,]
+
+#Preview the dataframe
+df
+```
+
+```R
+extract_table_as_df = function(f, pages=NULL, area=NULL, header=TRUE){
+    t = extract_tables(f, pages = pages, area=area)
+    df = as.data.frame(t)
+    
+    if ( header ){
+        #The first row, in this case, represents the column names
+        colnames(df) <- as.character(unlist(df[1,]))
+
+        #Remove the first row that contained the column names
+        df <- df[-1,]
+    }
+    
+    df
+}
+```
+
+```R
+extract_table_as_df("2019/191403cli.pdf", pages=3)
+```
+
+Alternatively, use the in-built converter, which will always attempt to create a header from the first data row:
+
+```R
+extract_tables("2019/191403cli.pdf", pages=3, output="data.frame")
+```
+
+There is also an `output = "csv"` option to write data out to a CSV file.
+
+```R
+#We can see how this looks as a pandas dataframe
+library(reticulate)
+#pd <- import("pandas",as = "pd",convert = FALSE)
+r_to_py(df, convert=T)
+
+#I can't really remember how to work with py in R under reticulate!
 ```
 
 ```R
@@ -48,8 +150,71 @@ extract_tables("2019/191403cli.pdf", pages = 4)
 ```
 
 ```R
-#this sort of thing will need cleaning...
-extract_tables("2019/191403cli.pdf", pages = 5:10)
+#This sort of thing may need cleaning...
+t_n <- extract_tables("2019/191403cli.pdf", pages = 5:10)
+t_n
+```
+
+We can pass in co-ordinatates to force particular column splits, telling `tabulizer` not to guess at the table columns and instead passing in explicit column co-ordinates. 
+
+Note that this may require some juggling... For example, we may want to do a couple of passes:
+
+- one to identify the name of the driver and row number markers for them;
+- one to identify the timing columns.
+
+We might also need to tune the column settings for different reports (e.g. for tracks where there are differnt numbers of sectors, or columns recorded).
+
+```R
+extract_tables("2019/191403cli.pdf", pages = 5, guess=FALSE, 
+               columns=list(c(50, 120, 160, 200, 300, 390, 410, 450, 500, 600)), output='data.frame')
+```
+
+Where the data is contained over mutliple lists, we need to make a single list from them.
+
+```R
+full <- do.call(rbind, t_n)
+full
+```
+
+Let's patch the function that converts the extracted list to a dataframe to accommodate that...
+
+```R
+extract_table_as_df = function(f, pages=NULL, area=NULL, header=TRUE){
+    t = extract_tables(f, pages = pages, area=area)
+    
+    #Combine multiple tables
+    t <- do.call(rbind, t)
+    
+    df = as.data.frame(t)
+    
+    if ( header ){
+        #The first row, in this case, represents the column names
+        colnames(df) <- as.character(unlist(df[1,]))
+
+        #Remove the first row that contained the column names
+        df <- df[-1,]
+    }
+    
+    df
+}
+```
+
+```R
+#Check it still works for a single page
+extract_table_as_df("2019/191403cli.pdf", pages = 3)
+```
+
+```R
+#The following example seems to suggest we're not extracting tables the same way...
+extract_table_as_df("2019/191403cli.pdf", pages = 5:10, header=F)
+```
+
+```R
+extract_table_as_df("2019/191403cli.pdf", pages = 5, header=F)
+```
+
+```R
+extract_table_as_df("2019/191403cli.pdf", pages = 10, header=F)
 ```
 
 ```R
