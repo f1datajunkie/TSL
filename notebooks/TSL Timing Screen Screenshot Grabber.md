@@ -77,11 +77,12 @@ Now we can grab the screenshot:
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.common.by import By
+```
 
-
+```python
 #Set a default screensize...
 #There are other ways of setting up the browser so that we can grab the full browser view,
-#even long pages that woould typically require scrollong to see completely
+#even long pages that would typically require scrolling to see completely
 browser.set_window_size(800, 400)
 browser.get(url)
 
@@ -183,6 +184,19 @@ session
 
 We could use this information to give us meaningful filenames when we save timing screen images or data.
 
+```python
+#Red flag
+#//*[@id="currentflag"]
+flag_path='//*[@id="currentflag"]'
+flag = text_value_from_xpath(browser, flag_path )
+flag
+```
+
+```python
+sessionTime_path ='//*[@id="sessionTime"]'
+sessionTime = text_value_from_xpath(browser, sessionTime_path )
+sessionTime
+```
 
 ### Grabbing Images of the Timing Screen
 
@@ -203,17 +217,18 @@ def getPageByTab(browser,url, tabId='Classification', ofn=None):
     print('screenshot saved to {}'.format(ofn))
     display(Image(ofn))
     return ofn
-    
+```
 
-url = 'https://livetiming.tsl-timing.com/191209'
+```python
+#url = 'https://livetiming.tsl-timing.com/191209'
 getPageByTab(browser, url, 'Classification')
 ```
 
-We could create a meaningful filname from the series and session metadata. For example:
+We could create a meaningful filename from the series and session metadata. For example:
 
 ```python
 #get file name
-fn = '{}_{}.png'.format(series, session )
+fn = '{}_{}.png'.format(series.replace('/','_'), session.replace('/','_') )
 
 getPageByTab(browser, url, 'Classification', fn)
 ```
@@ -234,7 +249,108 @@ el = browser.find_element_by_xpath(xpath)
 import pandas as pd
 
 df = pd.read_html( el.get_attribute('innerHTML'))[0].dropna(axis=1,how='all')
+df.rename(columns={'Time/Gap':'TimeGap',
+                   'Unnamed: 1':'Penalties'}, inplace=True)
 df.head()
+```
+
+```python
+df.dtypes
+```
+
+```python
+classification_table = '''
+CREATE TABLE "tsl_timing_classification" (
+  "Pos" INTEGER,
+  "Penalties" TEXT,
+  "No" INTEGER,
+  "Cl" TEXT,
+  "PIC" INTEGER,
+  "Name" TEXT,
+  "Laps" INTEGER,
+  "TimeGap" TEXT,
+  "Diff" TEXT,
+  "Best" TEXT,
+  "Last" TEXT ,
+  "PS" FLOAT,
+  "S1" TEXT,
+  "V1" FLOAT,
+  "S2" TEXT,
+  "V2" FLOAT,
+  "S3" TEXT, 
+  "VF" FLOAT,
+  PRIMARY KEY (No, Laps, Last)
+);
+'''
+```
+
+```python
+import sqlite3
+from sqlite_utils import Database
+
+dbname='testlive6.db'
+
+!rm $dbname
+conn = sqlite3.connect(dbname, timeout=10)
+
+
+#Setup database tables
+c = conn.cursor()
+c.executescript(classification_table)
+
+
+DB = Database(conn)
+_table = 'tsl_timing_classification'
+```
+
+If we grab the classification table with a period sligthly less than that of the fastest sector time, and upsert on the table using the (car number, lap, gap) as a unique key, then we should make sure we capture all the laps and the sector times, though we will need to do a little bit of processing of the multiple rows captured for each driver for each lap. (As the timing screen is live, as the leader goes onto a new lap, every other driver goes at least 1 Lap behind; we have to recover from such things.)
+
+The *(car number, lap, previous lap)* combination should also be unique. (I need to think, would that guarantee we capture section times?).
+
+```python
+url = 'https://livetiming.tsl-timing.com/191403'
+browser = webdriver.Firefox(options=options)
+browser.get(url)
+```
+
+```python
+#should perhap have a wait here to just make sure evrything is loaded...
+#Or perhaps better, a guard at end of previous cell
+getPageByTab(browser, url, 'Classification')
+```
+
+```python
+import time
+
+xpath = '//*[@id="ResultsTableContainer"]'
+
+
+#This should really be while not finished
+while True:
+    #Grab the timing screen
+    el = browser.find_element_by_xpath(xpath)
+    
+    #Parse out the data
+    df = pd.read_html( el.get_attribute('innerHTML'))[0].dropna(axis=1,how='all')
+    #Tidy up the column names
+    df.rename(columns={'Time/Gap':'TimeGap',
+                       'Unnamed: 1':'Penalties'}, inplace=True)
+    #Upsert the date
+    DB[_table].upsert_all(df.to_dict(orient='records'))
+    print('.',end='')
+    time.sleep(15)
+    
+#TO DO - also record time stamp; and maybe in another table, flag status vs timestamp
+```
+
+```python
+dbname='testlive2.db'
+
+#!rm $dbname
+conn = sqlite3.connect(dbname, timeout=10)
+
+q="SELECT * FROM tsl_timing_classification WHERE No=41;"
+pd.read_sql(q,conn)
 ```
 
 We can then easily save the dataframe to a CSV file:
@@ -323,20 +439,6 @@ el.text
 
 ```python
 pd.read_html( '<table>{}</table>'.format(el.get_attribute('innerHTML')))[0].dropna(axis=1,how='all')
-```
-
-```python
-#Red flag
-#//*[@id="currentflag"]
-flag_path='//*[@id="currentflag"]'
-flag = text_value_from_xpath(browser, flag_path )
-flag
-```
-
-```python
-sessionTime_path ='//*[@id="sessionTime"]'
-sessionTime = text_value_from_xpath(browser, sessionTime_path )
-sessionTime
 ```
 
 ```python
