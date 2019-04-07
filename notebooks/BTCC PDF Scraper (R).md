@@ -60,6 +60,25 @@ series <- strsplit( t , '\n')[[1]][1]
 series
 ```
 
+Let's start to think about how we might manage the data. Use data frames for now, but with a view to casting dataframes as SQLite tables.
+
+```R
+series_df <- data.frame(series, PDF )
+series_df
+```
+
+```R
+library(DBI)
+
+db <- dbConnect(RSQLite::SQLite(), "testdb.sqlite")
+```
+
+```R
+#dbRemoveTable(db, "series")
+dbWriteTable(db, "series", series_df) #append=
+dbGetQuery(db, 'SELECT * FROM series LIMIT 5')
+```
+
 We can use the `area=` parameter to specify `(top, left, bottom, right)` area co-ordinates within which `tabulizer` should look for the table information.
 
 ```R
@@ -94,7 +113,11 @@ Let's see if we can make a lookup table / dataframe for the sessions:
 ```R
 details<-data.frame()
 for (page in 1:extract_metadata(PDF)$pages){
+    
+    #Extract info from the top of the page
     t <- extract_text(PDF, pages = page, area = list(c(0, 0, 120, 600)))
+    
+    #Parse info
     event <- strsplit(t, '\n')[[1]][1]
     sessiondetail <- strsplit(t, '\n')[[1]][2]
     sessiondetails <- rev(strsplit(sessiondetail, '-')[[1]])
@@ -104,14 +127,19 @@ for (page in 1:extract_metadata(PDF)$pages){
         session <- sessiondetails[3]
     } else {session <- 'RACE'}
     
-    details <- rbind(details, data.frame(page, event, session, report))
+    #Create dataframe
+    details <- rbind(details, data.frame(series, page, event, session, report))
 }
 
-na.omit(details)
+#Tidy dataframe
+details <- na.omit(details)
+
+details
 ```
 
 ```R
-sessiondetails
+dbWriteTable(db, "pdf_pages", details, append=T)
+dbGetQuery(db, 'SELECT * FROM pdf_pages LIMIT 5')
 ```
 
 The page footer may also contain useful information:
