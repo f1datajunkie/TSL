@@ -27,7 +27,11 @@ library("tabulizer")
 ```
 
 ```R
-get_page_dims("2019/191403cli.pdf", pages=1)
+PDF <- "2019/191403cli.pdf"
+```
+
+```R
+get_page_dims(PDF, pages=1)
 ```
 
 ```R
@@ -39,14 +43,18 @@ get_page_dims("2019/191403cli.pdf", pages=1)
 We can extract text from the PDFs using the `extract_text()` function:
 
 ```R
-extract_metadata("2019/191403cli.pdf")
+extract_metadata(PDF)
+```
+
+```R
+strsplit( extract_text(PDF, page=1) , '\n')[[1]]
 ```
 
 We can use the `area=` parameter to specify `(top, left, bottom, right)` area co-ordinates within which `tabulizer` should look for the table information.
 
 ```R
 #Page header
-t = extract_text("2019/191403cli.pdf", pages = 13, area = list(c(0, 0, 120, 600)))
+t = extract_text(PDF, pages = 13, area = list(c(0, 0, 120, 600)))
 cat(t)
 ```
 
@@ -58,18 +66,16 @@ paste(strsplit(t, '\n')[[1]][1], '*and*', strsplit(t, '\n')[[1]][2])
 
 ```R
 #What happens with the empy second item?
-t = extract_text("2019/191403cli.pdf", pages = 2, area = list(c(0, 0, 120, 600)))
+t = extract_text(PDF, pages = 2, area = list(c(0, 0, 120, 600)))
 paste(strsplit(t, '\n')[[1]][1], '*and*', strsplit(t, '\n')[[1]][2])
 ```
 
 We can then grab the headings for each page. 
 
-*TO DO: split the lines on line breaks and make a dataframe of this?*
-
 ```R
-for (page in 1:extract_metadata("2019/191403cli.pdf")$pages){
+for (page in 1:extract_metadata(PDF)$pages){
     cat( paste('Page', page, '-',
-               extract_text("2019/191403cli.pdf", pages = page, area = list(c(0, 0, 120, 600))), '\n' ))
+               extract_text(PDF, pages = page, area = list(c(0, 0, 120, 600))), '\n' ))
 }
 ```
 
@@ -91,7 +97,7 @@ We can automatically extract data from tables, although:
 Some pages in the PDF report data as a list rather than a table, eg some of the statistics reports. These pages will need retrieving as text and then undergo some parsing, or will need to be scraped by a more structured scraper.
 
 ```R
-extract_tables("2019/191403cli.pdf", pages = 2)
+extract_tables(PDF, pages = 2)
 ```
 
 ```R
@@ -139,13 +145,13 @@ extract_table_as_df = function(f, pages=NULL, area=NULL, header=TRUE){
 ```
 
 ```R
-extract_table_as_df("2019/191403cli.pdf", pages=3)
+extract_table_as_df(PDF, pages=3)
 ```
 
 Alternatively, use the in-built converter, which will always attempt to create a header from the first data row:
 
 ```R
-extract_tables("2019/191403cli.pdf", pages=3, output="data.frame")
+extract_tables(PDF, pages=3, output="data.frame")
 ```
 
 There is also an `output = "csv"` option to write data out to a CSV file.
@@ -167,7 +173,7 @@ r_to_py(df, convert=T)
 Some of the table extract quite cleanly:
 
 ```R
-extract_tables("2019/191403cli.pdf", pages = 4)
+extract_tables(PDF, pages = 4)
 ```
 
 Others may need cleaning, at least if we go with the guessed at settings.
@@ -175,7 +181,7 @@ Others may need cleaning, at least if we go with the guessed at settings.
 For example, the following table extraction does not separate out some of the sector times into separate columns:
 
 ```R
-t_n <- extract_tables("2019/191403cli.pdf", pages = 5:10)
+t_n <- extract_tables(PDF, pages = 5:10)
 t_n
 ```
 
@@ -191,7 +197,7 @@ Note that this may require some juggling... For example, we may want to do a cou
 We might also need to tune the column settings for different reports (e.g. for tracks where there are differnt numbers of sectors, or columns recorded).
 
 ```R
-extract_tables("2019/191403cli.pdf", pages = 5, guess=FALSE, 
+extract_tables(PDF, pages = 5, guess=FALSE, 
                columns=list(c(50, 120, 160, 200, 300, 390, 410, 450, 500, 600)), output='data.frame')
 ```
 
@@ -227,20 +233,20 @@ extract_table_as_df = function(f, pages=NULL, area=NULL, header=TRUE){
 
 ```R
 #Check it still works for a single page
-extract_table_as_df("2019/191403cli.pdf", pages = 3)
+extract_table_as_df(PDF, pages = 3)
 ```
 
 ```R
 #The following example seems to suggest we're not extracting tables the same way...
-extract_table_as_df("2019/191403cli.pdf", pages = 5:10, header=F)
+extract_table_as_df(PDF, pages = 5:10, header=F)
 ```
 
 ```R
-extract_table_as_df("2019/191403cli.pdf", pages = 5, header=F)
+extract_table_as_df(PDF, pages = 5, header=F)
 ```
 
 ```R
-extract_table_as_df("2019/191403cli.pdf", pages = 10, header=F)
+extract_table_as_df(PDF, pages = 10, header=F)
 ```
 
 ```R
@@ -248,52 +254,52 @@ extract_tables("2019/191403cli.pdf", pages = 11)
 ```
 
 ```R
-extract_tables("2019/191403cli.pdf", pages = 12)
+extract_tables(PDF, pages = 12)
 ```
 
 ```R
-extract_tables("2019/191403cli.pdf", pages = 14)
+extract_tables(PDF, pages = 14)
 ```
 
 ```R
-extract_tables("2019/191403cli.pdf", pages = 15)
+extract_tables(PDF, pages = 15)
 ```
 
 ```R
-extract_tables("2019/191403cli.pdf", pages = 16)
+extract_tables(PDF, pages = 16)
 ```
 
 ```R
-extract_tables("2019/191403cli.pdf", pages = 19)
+extract_tables(PDF, pages = 19)
 ```
 
 ```R
 #Will need tidying
-extract_tables("2019/191403cli.pdf", pages = 20:23)
+extract_tables(PDF, pages = 20:23)
 ```
 
 ```R
-extract_tables("2019/191403cli.pdf", pages = 24)
+extract_tables(PDF, pages = 24)
 ```
 
 ```R
-extract_tables("2019/191403cli.pdf", pages = 25)
+extract_tables(PDF, pages = 25)
 ```
 
 ```R
-extract_tables("2019/191403cli.pdf", pages = 26:29)
+extract_tables(PDF, pages = 26:29)
 ```
 
 ```R
-extract_tables("2019/191403cli.pdf", pages = 32)
+extract_tables(PDF, pages = 32)
 ```
 
 ```R
-extract_tables("2019/191403cli.pdf", pages = 33)
+extract_tables(PDF, pages = 33)
 ```
 
 ```R
-extract_tables("2019/191403cli.pdf", pages = 34)
+extract_tables(PDF, pages = 34)
 ```
 
 ```R
