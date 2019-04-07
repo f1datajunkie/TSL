@@ -40,14 +40,24 @@ get_page_dims(PDF, pages=1)
 
 ## Extract Page Info
 
-We can extract text from the PDFs using the `extract_text()` function:
+We can extract document metadata from the PDFs using the `extract_metadata()` function:
 
 ```R
 extract_metadata(PDF)
 ```
 
+We can also extract text from a page using the `extract_text()` function:
+
 ```R
-strsplit( extract_text(PDF, page=1) , '\n')[[1]]
+t <- extract_text(PDF, page=1)
+
+#Split the separate lines into a list
+strsplit( t , '\n')[[1]]
+```
+
+```R
+series <- strsplit( t , '\n')[[1]][1]
+series
 ```
 
 We can use the `area=` parameter to specify `(top, left, bottom, right)` area co-ordinates within which `tabulizer` should look for the table information.
