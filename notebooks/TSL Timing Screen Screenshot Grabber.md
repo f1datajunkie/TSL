@@ -279,16 +279,20 @@ CREATE TABLE "tsl_timing_classification" (
   "V2" FLOAT,
   "S3" TEXT, 
   "VF" FLOAT,
-  PRIMARY KEY (No, Laps, Last)
+  PRIMARY KEY (No, Laps) ON CONFLICT IGNORE
 );
 '''
+
+#PK WITH LAST, OR TIMEGAP??? Or just go with Number/Lap PK the first time we get that combination
+#dan then ignore any updates to it?
+#Rather that upsert, just do an insert, so we only get new Number/Laps combinations?
 ```
 
 ```python
 import sqlite3
 from sqlite_utils import Database
 
-dbname='testlive6.db'
+dbname='testlive7.db'
 
 !rm $dbname
 conn = sqlite3.connect(dbname, timeout=10)
@@ -303,9 +307,11 @@ DB = Database(conn)
 _table = 'tsl_timing_classification'
 ```
 
-If we grab the classification table with a period sligthly less than that of the fastest sector time, and upsert on the table using the (car number, lap, gap) as a unique key, then we should make sure we capture all the laps and the sector times, though we will need to do a little bit of processing of the multiple rows captured for each driver for each lap. (As the timing screen is live, as the leader goes onto a new lap, every other driver goes at least 1 Lap behind; we have to recover from such things.)
+If we grab the classification table with a period slightly less than that of the fastest sector time, and upsert on the table using the (car number, lap, gap) as a unique key, then we should make sure we capture all the laps and the sector times, though we will need to do a little bit of processing of the multiple rows captured for each driver for each lap. (As the timing screen is live, as the leader goes onto a new lap, every other driver goes at least 1 Lap behind; we have to recover from such things.)
 
 The *(car number, lap, previous lap)* combination should also be unique. (I need to think, would that guarantee we capture section times?).
+
+My original method used upserts to prevent collisions, but that's wrong, I think. SQLite lets us add a condirtion to the PK in a table definition that will ignore conflicts, so we can add a car number / lap combination to the tabe as soon as we see it, and then if we upload it again, perhaps with the `TimeGap` reset to `Lap 1` by the lead car starting a new lap, we can just ignore it.
 
 ```python
 url = 'https://livetiming.tsl-timing.com/191403'
@@ -336,21 +342,36 @@ while True:
     df.rename(columns={'Time/Gap':'TimeGap',
                        'Unnamed: 1':'Penalties'}, inplace=True)
     #Upsert the date
-    DB[_table].upsert_all(df.to_dict(orient='records'))
+    #DB[_table].upsert_all(df.to_dict(orient='records'))
+    #insert the date
+    DB[_table].insert_all(df.to_dict(orient='records'))
     print('.',end='')
     time.sleep(15)
     
 #TO DO - also record time stamp; and maybe in another table, flag status vs timestamp
+#so then we can easily retrieve eg approximate safety car periods etc
 ```
 
+I need to rethink the logic...
+
+We need to grab the timing screen just after a car has lapped; at this point, the sector times will be the sector times from the previous lap.
+
+When the leader laps, the other cars show `1 Lap` in the `TimeGap` column. When one of those car laps, we want to capture it. The unique key is the car number, and the lap number. When a car completes a lap, all the sector times are in place, lap counter increments and so does the last lap time. So we don't need an upsert. We need to add the new PK key and ignore any other updates.
+
+So need to check the df to see if the PK is already taken, and if it is, donlt add the row.
+
 ```python
-dbname='testlive2.db'
+dbname='testlive4.db'
 
 #!rm $dbname
 conn = sqlite3.connect(dbname, timeout=10)
 
-q="SELECT * FROM tsl_timing_classification WHERE No=41;"
+q="SELECT * FROM tsl_timing_classification;"
 pd.read_sql(q,conn)
+```
+
+```python
+28.861+38.96+24.676
 ```
 
 We can then easily save the dataframe to a CSV file:
