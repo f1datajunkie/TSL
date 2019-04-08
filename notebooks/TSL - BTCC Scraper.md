@@ -34,7 +34,9 @@ Grab PDFs from TSL site.
 import datetime
 
 #Use this year as default
-year = datetime.datetime.now().year
+YEAR = datetime.datetime.now().year
+
+year = year
 
 domain = 'http://www.tsl-timing.com'
 
@@ -50,7 +52,7 @@ event_url='http://www.tsl-timing.com/event/{}'.format(event_id)
 ```
 
 ```python
-download_dir_base = '.'
+download_dir_base = 'tsl_results_data'
 ```
 
 ```python
@@ -74,12 +76,32 @@ resultsseries[0]
 ```
 
 ```python
-for seriesresult in resultsseries:
-    _series_url = seriesresult['href']
-    _series = _series_url.strip('/').split('/')[-1]
-    _series_logo_path = seriesresult.find('img')['src']
-    _series_event = seriesresult.find('div',{'class':'clubListTitle'}).text
-    print(_series_url,_series_logo_path, _series, _series_event )
+import pandas as pd
+```
+
+```python
+def get_TSL_series(results_url='http://www.tsl-timing.com/Results'):
+    
+    resultspage=requests.get(results_url)
+    resultssoup=BeautifulSoup(resultspage.content)
+    
+    resultsseries=resultssoup.find('div',{'class':'clubListContainer'}).findAll('a')
+    
+    _data = []
+    for seriesresult in resultsseries:
+        _series_url = seriesresult['href']
+        _series = _series_url.strip('/').split('/')[-1]
+        _series_logo_path = seriesresult.find('img')['src']
+        _series_event = seriesresult.find('div',{'class':'clubListTitle'}).text
+        #print(_series_url,_series_logo_path, _series, _series_event )
+        _data.append({'_series_url':_series_url,
+                      '_series_logo_path':_series_logo_path,
+                      '_series':_series,
+                      '_series_event':_series_event})
+        
+    return pd.DataFrame( _data )
+    
+get_TSL_series()
 ```
 
 ## Get Series Pages
@@ -87,17 +109,33 @@ for seriesresult in resultsseries:
 Get a list of links for each event in a series.
 
 ```python
-seriespage=requests.get(series_url)
-seriessoup=BeautifulSoup(seriespage.content)
-```
+def get_TSL_series_events(series='toca', year = YEAR ):
+    
+    series_url='http://www.tsl-timing.com/Results/{}/{}'.format(series, year)
+    
+    seriespage=requests.get(series_url)
+    seriessoup=BeautifulSoup(seriespage.content)
 
-```python
-seriesevents=seriessoup.find('div',{'id':'races'}).findAll('a')
+    seriesevents=seriessoup.find('div',{'id':'races'}).findAll('a')
 
-for seriesevent in seriesevents:
-    _event_url = seriesevent['href']
-    _event = seriesevent.find('div',{'class':'clubEventText'}).text
-    print(_event_url, _event)
+    _data = []
+    
+    for seriesevent in seriesevents:
+        _event_url = seriesevent['href']
+        _event_txt = seriesevent.find('div',{'class':'clubEventText'}).text
+
+        _event_txt_parts = _event_txt.strip('\n').split('\n')
+        _event_date = _event_txt_parts[0]
+        _event_name = _event_txt_parts[1]
+
+        #print(_event_txt_parts)
+        _data.append( {'_event_url':_event_url,
+                       '_event_date':_event_date,
+                       '_event_name':_event_name } )
+        
+    return pd.DataFrame( _data )
+
+get_TSL_series_events('toca')
 ```
 
 ### Get Event PDFs
@@ -107,6 +145,16 @@ Download PDFs relating to a particular event.
 ```python
 eventpage=requests.get(event_url)
 eventsoup=BeautifulSoup(eventpage.content)
+```
+
+```python
+#check that event data is available
+data_available = False if eventsoup.find("h3", string="Event data available soon") else True
+```
+
+```python
+event_map_url = eventsoup.find('img',{'class':'eventMapImage'})['src']
+event_map_url
 ```
 
 ```python
@@ -120,23 +168,70 @@ p = '{}/{}/{}'.format(download_dir_base,series,year)
 ```python
 if not os.path.exists(p):
     os.makedirs(p)
-    
+
+download=True
+
 for event in events:
     championship_name = event.find('h3').text
     championship_url = event.find('a')['href']
-    print('Downloading {} [{}]'.format(championship_name, championship_url))
-    if championship_url.endswith('.pdf'):
-        cmd = 'curl -o "{fp}" {url}'.format(url='{}{}'.format(domain,championship_url),fp='{}/{}.pdf'.format(p,championship_name))
-        os.system(cmd)
-print('Files downloaded to {}'.format(p))
+    if download:
+        print('Downloading: {} [{}]'.format(championship_name, championship_url))
+        if championship_url.endswith('.pdf'):
+            cmd = 'curl -o "{fp}" {url}'.format(url='{}{}'.format(domain,championship_url),fp='{}/{}.pdf'.format(p,championship_name))
+            os.system(cmd)
+        print('Files downloaded to: {}'.format(p))
+```
+
+Put all that together...
+
+```python
+
+
+def get_TSL_event_data(event_id = 191403, download = False, dirpath='results'):
+    
+    event_url='http://www.tsl-timing.com/event/{}'.format(event_id)
+    
+    eventpage=requests.get(event_url)
+    eventsoup=BeautifulSoup(eventpage.content)
+    
+    data_available = False if eventsoup.find("h3", string="Event data available soon") else True
+    
+    _data=[]
+    
+    if data_available:
+        events=eventsoup.findAll('div',{'class':'championshipDiv'})
+        
+        if not os.path.exists(dirpath):
+            os.makedirs(dirpath)
+
+        for event in events:
+            championship_name = event.find('h3').text
+            championship_url = event.find('a')['href']
+            
+            _data.append({'championship_name':championship_name,
+                          'championship_url':championship_url})
+            
+            if download:
+                print('Downloading: {} [{}]'.format(championship_name, championship_url))
+                if championship_url.endswith('.pdf'):
+                    cmd = 'curl -o "{fp}" {url}'.format(url='{}{}'.format(domain,championship_url),
+                                                        fp='{}/{}.pdf'.format(dirpath,championship_name))
+                    os.system(cmd)
+        
+        if download:
+            print('Files downloaded to: {}'.format(dirpath))
+        
+    return pd.DataFrame( _data )
+
+#p = '{}/{}/{}'.format(download_dir_base,series,year)
+#get_TSL_event_data(dirpath = p)
+get_TSL_event_data()
+
+#Looks like we can pull out further srubs from end of PDF filename?
 ```
 
 ```python
 !ls ./toca/2019
-```
-
-```python
-
 ```
 
 ```python
