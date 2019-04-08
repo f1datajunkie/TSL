@@ -18,7 +18,7 @@ jupyter:
 The python tabula wrapper doesn't appear to work... so let's try the R one...
 
 ```R
-install.packages("tabulizer")
+#install.packages("tabulizer")
 ```
 
 ```R
@@ -60,6 +60,51 @@ series <- strsplit( t , '\n')[[1]][1]
 series
 ```
 
+Let's try another one...
+
+```R
+extract_text('results/Dunlop Endurance Championship.pdf', page=1)
+```
+
+Okay, so maybe we need to do a bit more cleaning...
+
+Let's work on the assumption that the first none copyright related notice is the series...
+
+```R
+#install.packages("rlist")
+
+library(rlist)
+library(magrittr)
+library(stringi)
+
+#Clean whitespace
+items <- list.map( strsplit( extract_text('results/Dunlop Endurance Championship.pdf', page=1)[[1]], '\n') , trimws(.) )
+
+#Remove empty list items
+items <- list.map( items , stri_remove_empty(.) )[[1]]
+
+#Remove the TSL boilerplate items
+items[! items %in% c('Results Provided by Timing Solutions Ltd', 'www.tsl-timing.com')]
+
+```
+
+```R
+get_TSL_series <- function(PDF){
+    t <- extract_text(PDF, page=1)
+    
+    items <- list.map( strsplit( t[[1]], '\n') , trimws(.) )
+
+    items <- list.map( items , stri_remove_empty(.) )[[1]]
+
+    items <- items[! items %in% c('Results Provided by Timing Solutions Ltd', 'www.tsl-timing.com')]
+
+    items[1]
+}
+
+get_TSL_series(PDF)
+
+```
+
 Let's start to think about how we might manage the data. Use data frames for now, but with a view to casting dataframes as SQLite tables.
 
 ```R
@@ -80,6 +125,17 @@ dbGetQuery(db, 'SELECT * FROM series LIMIT 5')
 ```
 
 We can use the `area=` parameter to specify `(top, left, bottom, right)` area co-ordinates within which `tabulizer` should look for the table information.
+
+
+For example, the page footer may contain useful information, such as the session time, weather and track condition.
+
+```R
+#Page footer
+t = extract_text("2019/191403cli.pdf", pages = 9, area = list(c(760, 0, 1000, 600)))
+cat(t)
+```
+
+How about the page header?
 
 ```R
 #Page header
@@ -111,51 +167,75 @@ for (page in 1:extract_metadata(PDF)$pages){
 Let's see if we can make a lookup table / dataframe for the sessions:
 
 ```R
-details<-data.frame()
-for (page in 1:extract_metadata(PDF)$pages){
+get_TSL_PDF_pages <- function(PDF){
+
+    #series <- get_TSL_series(PDF)
     
-    #Extract info from the top of the page
-    t <- extract_text(PDF, pages = page, area = list(c(0, 0, 120, 600)))
+    details<-data.frame()
+    for (page in 1:extract_metadata(PDF)$pages){
+
+        #Extract info from the top of the page
+        t <- extract_text(PDF, pages = page, area = list(c(0, 0, 120, 600)))
+
+        #Parse info
+        series <- trimws(strsplit(t, '\n')[[1]][1])
+        sessiondetail <- strsplit(t, '\n')[[1]][2]
+        sessiondetails <- rev(strsplit(sessiondetail, '-')[[1]])
+        report <- trimws(sessiondetails[1])
+        event <- trimws(sessiondetails[2])
+        if (length(sessiondetails)==3){
+            session <- trimws(sessiondetails[3])
+        } else {session <- 'RACE'}
+
+        #Create dataframe
+        details <- rbind(details, data.frame(series, page, event, session, report))
+    }
+
+    #Tidy dataframe
+    details <- na.omit(details)
+
+    details
     
-    #Parse info
-    event <- strsplit(t, '\n')[[1]][1]
-    sessiondetail <- strsplit(t, '\n')[[1]][2]
-    sessiondetails <- rev(strsplit(sessiondetail, '-')[[1]])
-    report <- sessiondetails[1]
-    event <- sessiondetails[2]
-    if (length(sessiondetails)==3){
-        session <- sessiondetails[3]
-    } else {session <- 'RACE'}
-    
-    #Create dataframe
-    details <- rbind(details, data.frame(series, page, event, session, report))
+    #TO DO - info from page footer; data available there may be dependent on report type.
 }
 
-#Tidy dataframe
-details <- na.omit(details)
+details <- get_TSL_PDF_pages(PDF)
 
-details
+details[1:5,]
 ```
 
 ```R
+details <- get_TSL_PDF_pages('results/Dunlop Endurance Championship.pdf')
+details[1:5,]
+```
+
+```R
+#dbRemoveTable(db, "pdf_pages")
 dbWriteTable(db, "pdf_pages", details, append=T)
 dbGetQuery(db, 'SELECT * FROM pdf_pages LIMIT 5')
 ```
 
-The page footer may also contain useful information:
+So now we should be able to run a query over the PDF data to find the pages associated with a particular event session. 
 
 ```R
-#Page footer
-t = extract_text("2019/191403cli.pdf", pages = 9, area = list(c(760, 0, 1000, 600)))
-cat(t)
+q='
+SELECT * FROM pdf_pages 
+WHERE series="Dunlop Endurance Championship" 
+    AND event="RACE 1" 
+    AND session="RACE" 
+    AND report="LAP ANALYSIS";
+'
+
+dbGetQuery(db, q)
+
 ```
 
 ## Extract Table Data
 
-We can automatically extract data from tables, although:
+We can automatically extract data from tables, although we may want to check that:
 
-- it will need parsing within cell;
-- some rows may missed by the extractor(?).
+- data may need parsing within cell;
+- some rows aren't missed by the extractor.
 
 Some pages in the PDF report data as a list rather than a table, eg some of the statistics reports. These pages will need retrieving as text and then undergo some parsing, or will need to be scraped by a more structured scraper.
 
