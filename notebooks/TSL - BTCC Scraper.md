@@ -25,13 +25,133 @@ TO DO:
 - automate the generation of file names and save dataframes from the document type;
 - automate the scrapes to take a timing results booklet PDF and save one or more tables using CSV format for each document it contains.
 
-```python
-#!pip3 install requests-html
-```
 
 ## PDF Grabber
 
+Grab PDFs from TSL site.
+
+```python
+import datetime
+
+#Use this year as default
+year = datetime.datetime.now().year
+
+domain = 'http://www.tsl-timing.com'
+
+
+results_url='http://www.tsl-timing.com/Results'
+
+series = 'toca'
+series_url='http://www.tsl-timing.com/Results/{}/{}'.format(series, year)
+
+event_id = 191403
+
+event_url='http://www.tsl-timing.com/event/{}'.format(event_id)
+```
+
+```python
+download_dir_base = '.'
+```
+
+```python
+import requests
+from bs4 import BeautifulSoup
+import os
+```
+
+## Get All Results Info
+
+Get a list of links to all clubs and series.
+
+```python
+resultspage=requests.get(results_url)
+resultssoup=BeautifulSoup(resultspage.content)
+```
+
+```python
+resultsseries=resultssoup.find('div',{'class':'clubListContainer'}).findAll('a')
+resultsseries[0]
+```
+
+```python
+for seriesresult in resultsseries:
+    _series_url = seriesresult['href']
+    _series = _series_url.strip('/').split('/')[-1]
+    _series_logo_path = seriesresult.find('img')['src']
+    _series_event = seriesresult.find('div',{'class':'clubListTitle'}).text
+    print(_series_url,_series_logo_path, _series, _series_event )
+```
+
+## Get Series Pages
+
+Get a list of links for each event in a series.
+
+```python
+seriespage=requests.get(series_url)
+seriessoup=BeautifulSoup(seriespage.content)
+```
+
+```python
+seriesevents=seriessoup.find('div',{'id':'races'}).findAll('a')
+
+for seriesevent in seriesevents:
+    _event_url = seriesevent['href']
+    _event = seriesevent.find('div',{'class':'clubEventText'}).text
+    print(_event_url, _event)
+```
+
+### Get Event PDFs
+
+Download PDFs relating to a particular event.
+
+```python
+eventpage=requests.get(event_url)
+eventsoup=BeautifulSoup(eventpage.content)
+```
+
+```python
+events=eventsoup.findAll('div',{'class':'championshipDiv'})
+```
+
+```python
+p = '{}/{}/{}'.format(download_dir_base,series,year)
+```
+
+```python
+if not os.path.exists(p):
+    os.makedirs(p)
+    
+for event in events:
+    championship_name = event.find('h3').text
+    championship_url = event.find('a')['href']
+    print('Downloading {} [{}]'.format(championship_name, championship_url))
+    if championship_url.endswith('.pdf'):
+        cmd = 'curl -o "{fp}" {url}'.format(url='{}{}'.format(domain,championship_url),fp='{}/{}.pdf'.format(p,championship_name))
+        os.system(cmd)
+print('Files downloaded to {}'.format(p))
+```
+
+```python
+!ls ./toca/2019
+```
+
+```python
+
+```
+
+```python
+
+```
+
+## Alternative PDF Grabber
+
 The PDF grabber will download copies of all timing sheet booklets for the current season.
+
+Explore alternative variant using `requests-html`.
+
+```python
+#!pip3 install requests-html
+```
 
 ```python
 listing_url='http://www.tsl-timing.com/Results/toca/'
