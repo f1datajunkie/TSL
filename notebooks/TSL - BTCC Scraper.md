@@ -207,9 +207,10 @@ def get_TSL_event_data(event_id = 191403, download = False, dirpath='results'):
         for event in events:
             championship_name = event.find('h3').text
             championship_url = event.find('a')['href']
-            
+            championship_stub = championship_url.split('/')[-1].split('.')[0].replace(str(event_id),'')
             _data.append({'championship_name':championship_name,
-                          'championship_url':championship_url})
+                          'championship_url':championship_url,
+                          'championship_stub': championship_stub})
             
             if download:
                 print('Downloading: {} [{}]'.format(championship_name, championship_url))
@@ -235,7 +236,12 @@ get_TSL_event_data()
 ```
 
 ```python
+#https://www.tsl-timing.com/event/191363
+get_TSL_event_data(191363, True)
+```
 
+```python
+!ls results
 ```
 
 ## Alternative PDF Grabber
