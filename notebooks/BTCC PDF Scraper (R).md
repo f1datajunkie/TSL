@@ -339,6 +339,9 @@ Note that this may require some juggling... For example, we may want to do a cou
 
 We might also need to tune the column settings for different reports (e.g. for tracks where there are differnt numbers of sectors, or columns recorded).
 
+
+Ona  Mac, co-ordinates for areas can be found via the `Preview` application: `Tools -> Show Inspector` then the fourth, ruler tab. When you make a rectangular selection in the PDF document, the co-ordinates of the top left corner will be displayed as well as the width and height of the selection.
+
 ```R
 extract_tables(PDF, pages = 5, guess=FALSE, 
                columns=list(c(50, 120, 160, 200, 300, 390, 410, 450, 500, 600)), output='data.frame')
@@ -351,11 +354,11 @@ full <- do.call(rbind, t_n)
 full
 ```
 
-Let's patch the function that converts the extracted list to a dataframe to accommodate that...
+Let's patch the function that converts the extracted list to a dataframe to accommodate that. We can add a handler for the `columns` and `guess` arguments at the same time.
 
 ```R
-extract_table_as_df = function(f, pages=NULL, area=NULL, header=TRUE){
-    t = extract_tables(f, pages = pages, area=area)
+extract_table_as_df = function(f, pages=NULL, area=NULL, columns=NULL, guess=NULL, header=TRUE){
+    t = extract_tables(f, pages = pages, area=area, columns=columns, guess=guess)
     
     #Combine multiple tables
     t <- do.call(rbind, t)
@@ -380,12 +383,213 @@ extract_table_as_df(PDF, pages = 3)
 ```
 
 ```R
-#The following example seems to suggest we're not extracting tables the same way...
+extract_table_as_df(PDF, pages = 5, header=F)
+```
+
+The following example seems to suggest we're not extracting supposedly the same sort of table from across multiple tables in the same way. One way around this is to define some column settings defined for particular page types.
+
+```R
 extract_table_as_df(PDF, pages = 5:10, header=F)
 ```
 
+### Defining Settings for Particular Pages
+
+Let's explore how to define settings for particular pages.
+
 ```R
-extract_table_as_df(PDF, pages = 5, header=F)
+extract_table_as_df('results/Dunlop Endurance Championship.pdf', pages = 63, header=F)
+```
+
+Unfortunately, we can only specify `columns` *exclusive or* `area`.
+
+```R
+#area is top, left, bottom, right
+extract_table_as_df('results/Dunlop Endurance Championship.pdf', pages = 63, guess=F, header=T,
+                    columns=list(c(100, 200, 300, 400, 500)))
+```
+
+(My table extractor seems to drop empty columns, for example, if there is no pit event.)
+
+```R
+df <- extract_tables('results/Dunlop Endurance Championship.pdf', pages = 63, header=F, guess=F, output='data.frame',
+                    columns= list(c(45,80,114,130,156,192,228,242,269,306,341,358,383,420,454,469,494,529, 568, 600)))
+#For now, just grab the first (only) page scraped dataframe
+df <- df[[1]]
+df
+```
+
+We now need to tidy this up:
+
+- drop the rows at the head: key this on the first row where the first column value starts with `NO`;
+- drop the footer: key this based on the first row after the first data row to that is blank.
+
+```R
+startrow <- which(startsWith(df[,1],'NO'))+1
+startrow
+```
+
+```R
+#Blank row:
+blanks <- which(df[,1]=='')
+endrow <- min(blanks[blanks>startrow]) -1
+endrow
+```
+
+```R
+library(dplyr)
+
+df <- df %>% slice(startrow:endrow)
+df
+```
+
+Issues with this:
+
+- need to fill `NA` column with blanks;
+- need to split grouped columns into a long `laps` dataframe;
+- some sort of name convention for columns.
+
+```R
+#Replace NA with blank string
+df[is.na(df)] <- ''
+df[1:5,]
+```
+
+```R
+cols = c('NO','BEHIND','LAPTIME','PIT')
+names(df) <- rep(cols,5)
+df[1:5,]
+```
+
+```R
+#https://stackoverflow.com/questions/12466493/reshaping-multiple-sets-of-measurement-columns-wide-format-into-single-columns
+reshape(df, idvar = 'NO', direction="long", new.row.names =1:10000,
+        varying=list(c(1,5,9,13,17), c(2,6,10,14,18),c(3,7,11,15,19),c(4,8,12,16,20)),
+        timevar='Count')
+```
+
+Of course, it's never that simple... page 69, for example, where we get an overflow...
+
+```R
+extract_tables('results/Dunlop Endurance Championship.pdf', pages = 69, header=F, guess=F, output='data.frame',
+              columns= list(c(45,80,114,130,156,192,228,242,269,306,341,358,383,420,454,469,494,529, 568, 600)))[[1]][1:10,]
+```
+
+For that case, we need to detect whether the lap column headings are in place... Crap, crap, crap...
+
+Can maybe flag if the `NO` cell is identified. If it *isn't*, then we need to:
+
+- identify the column group that is overflowed;
+- append that from the `LAP` row to the column before.
+
+**Also need to see what happens when eg there are less than five lap goups on a page: how are empty col groups treated?**
+
+
+Park these for now...
+
+
+In the meantime, let's see how to put data from multipe pages into one dataframe.
+
+The lap number will be the lap increment multipled by the page number.
+
+```R
+dfs <- extract_tables('results/Dunlop Endurance Championship.pdf', pages = 63:64, header=F, guess=F, output='data.frame',
+                    columns= list(c(45,80,114,130,156,192,228,242,269,306,341,358,383,420,454,469,494,529, 568, 600)))
+
+```
+
+I can't think how to do this vector style right now... Here's a literal way:
+
+```R
+pageCount <- 1
+
+full_df = data.frame()
+
+for(df in dfs){
+    
+    startrow <- which(startsWith(df[,1],'NO'))+1
+    
+    blanks <- which(df[,1]=='')
+    endrow <- min(blanks[blanks>startrow]) -1
+    
+    df <- df %>% slice(startrow:endrow)
+    
+    cols = c('NO','BEHIND','LAPTIME','PIT')
+    names(df) <- rep(cols,5)
+    
+    df <- reshape(df, idvar = 'NO', direction="long", new.row.names =1:10000,
+        varying=list(c(1,5,9,13,17), c(2,6,10,14,18),c(3,7,11,15,19),c(4,8,12,16,20)),
+        timevar='Count')
+    
+    df$Lap <- df$Count * pageCount
+    
+    full_df = rbind(full_df, df)
+    
+    
+    pageCount <- pageCount + 1
+}
+
+full_df
+```
+
+To plot the classes, we need to know the classes. We can get this from the classification.
+
+```R
+class_df = extract_tables('results/Dunlop Endurance Championship.pdf', pages = 62, header=F, guess=F, output='data.frame',
+                    columns= list(c(35,56,84,101,269,364,389,432,465,498,525,560, 600)))[[1]]
+class_df
+```
+
+Note the exceptions... in a class, there may be `INV` (invited) cars.
+
+Some rows may also overflow to second rows, especially in eg the `NOT CLASSIFIED` or `FASTEST LAP` sections.
+
+So we need to cope with that...
+
+We also get collision in the scrape of the team name and the drivers. We should be able to recover that from other sheets, but it's a real pain here unless we use a heuristic of splittling on camelcase, although that doesn't help if lats part of a team name is in uppercase:-(
+
+```R
+#https://stackoverflow.com/a/43706490/454773
+paste(strsplit('AB DevelopmentsAndy', "(?<=[a-z])(?=[A-Z])", perl = TRUE)[[1]], collapse=' :: ')
+```
+
+How about getting the column names from a specified row?
+
+```R
+#colnames(df) <- as.character(unlist(df[1,]))
+headerrow=3
+print( as.character(unlist(class_df[headerrow,])) )
+
+class_df[-(1:headerrow),][1:5,]
+ 
+```
+
+```R
+allInOne <- class_df %>% unite('allInOne',colnames(class_df), sep='')
+#Remove all spaces - we don't know where a reserved word or phrase may be split
+allInOne$allInOne <- gsub("\\s", "", allInOne$allInOne) 
+allInOne
+```
+
+We can now lookup rows that separate different sections of the classification report.
+
+```R
+which(grepl("NOTCLASSIFIED", allInOne$allInOne))
+```
+
+```R
+which(grepl("FASTESTLAP", allInOne$allInOne))
+```
+
+```R
+
+```
+
+```R
+
+```
+
+```R
+
 ```
 
 ```R
