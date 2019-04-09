@@ -531,6 +531,22 @@ for(df in dfs){
 full_df
 ```
 
+Let's get a sneaky preview of how the laptimes are distributed. We'll group on `NO`, but first we need to parse the laptime into a numeric. The `lubridate::hms()` function converts to the time string for us.
+
+```R
+#install.packages("lubridate")
+library(lubridate)
+
+full_df$laptimeInS = period_to_seconds(hms(full_df$LAPTIME))
+```
+
+```R
+library(ggplot2)
+
+p <- ggplot(full_df, aes(NO, laptimeInS))
+p + geom_boxplot() + coord_flip()
+```
+
 To plot the classes, we need to know the classes. We can get this from the classification.
 
 ```R
@@ -563,6 +579,15 @@ class_df[-(1:headerrow),][1:5,]
  
 ```
 
+Let's apply that:
+
+```R
+names(class_df) <- as.character(unlist(class_df[headerrow,]))
+class_df <- class_df[-(1:headerrow),]
+
+class_df[1:5,]
+```
+
 ```R
 allInOne <- class_df %>% unite('allInOne',colnames(class_df), sep='')
 #Remove all spaces - we don't know where a reserved word or phrase may be split
@@ -573,11 +598,53 @@ allInOne
 We can now lookup rows that separate different sections of the classification report.
 
 ```R
-which(grepl("NOTCLASSIFIED", allInOne$allInOne))
+unclassified_row <- which(grepl("NOTCLASSIFIED", allInOne$allInOne))
+unclassified_row
 ```
 
 ```R
-which(grepl("FASTESTLAP", allInOne$allInOne))
+fastestLap_row <- which(grepl("FASTESTLAP", allInOne$allInOne))
+fastestLap_row
+```
+
+We can now filter the classification to give just the classified cars:
+
+```R
+class_df[1:(unclassified_row-1),]
+```
+
+And the unclassified cars:
+
+```R
+class_df[(unclassified_row+1):(fastestLap_row-1),]
+```
+
+Let's also clean the class column of invited cars:
+
+```R
+class_df$CLASS = gsub(' INV', '', class_df$CL)
+class_df$INV = endsWith(class_df$CL, ' INV')
+class_df[10:15,]
+```
+
+```R
+
+```
+
+```R
+
+```
+
+```R
+
+```
+
+```R
+
+```
+
+```R
+
 ```
 
 ```R
