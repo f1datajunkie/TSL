@@ -12,8 +12,9 @@ jupyter:
     name: ir
 ---
 
-# BTCC PDF Scraper
+# TSL PDF Scraper
 
+Scraper for extractng results and timing data from TSL results documents.
 
 The python tabula wrapper doesn't appear to work... so let's try the R one...
 
@@ -377,6 +378,8 @@ extract_table_as_df = function(f, pages=NULL, area=NULL, columns=NULL, guess=NUL
 }
 ```
 
+It might also be worth adding to that function something that let's us specify which row a header should be taken from.
+
 ```R
 #Check it still works for a single page
 extract_table_as_df(PDF, pages = 3)
@@ -400,15 +403,27 @@ Let's explore how to define settings for particular pages.
 extract_table_as_df('results/Dunlop Endurance Championship.pdf', pages = 63, header=F)
 ```
 
-Unfortunately, we can only specify `columns` *exclusive or* `area`.
+Unfortunately, we can only specify either `columns` *or* `area` but not both.
 
 ```R
-#area is top, left, bottom, right
-extract_table_as_df('results/Dunlop Endurance Championship.pdf', pages = 63, guess=F, header=T,
-                    columns=list(c(100, 200, 300, 400, 500)))
+library(tidyr)
 ```
 
-(My table extractor seems to drop empty columns, for example, if there is no pit event.)
+```R
+lapinfo <- as.data.frame( t( extract_table_as_df('results/Dunlop Endurance Championship.pdf', pages = 63, guess=F, header=F,
+                    columns=list(c(125, 237, 350, 464, 600)))[3,] ) )
+colnames(lapinfo) <- c('raw')
+
+#tidyr
+lapinfo <- lapinfo %>% extract(raw, into=c('lapname', 'lap', 'time'),
+                 '(LAP ([0-9]+)) @ (.*)', convert=TRUE)
+rownames(lapinfo)<- 1:nrow(lapinfo)
+
+lapinfo
+
+```
+
+Let's now try to separate out all the timing columns:
 
 ```R
 df <- extract_tables('results/Dunlop Endurance Championship.pdf', pages = 63, header=F, guess=F, output='data.frame',
@@ -417,6 +432,9 @@ df <- extract_tables('results/Dunlop Endurance Championship.pdf', pages = 63, he
 df <- df[[1]]
 df
 ```
+
+*(My table extractor seems to drop empty columns, for example, if there is no pit event.)*
+
 
 We now need to tidy this up:
 
@@ -480,6 +498,12 @@ Can maybe flag if the `NO` cell is identified. If it *isn't*, then we need to:
 
 - identify the column group that is overflowed;
 - append that from the `LAP` row to the column before.
+
+```R
+as.data.frame( t( extract_table_as_df('results/Dunlop Endurance Championship.pdf', pages = 69, guess=F, header=F,
+                    columns=list(c(125, 237, 350, 464, 600)))[3,] ) )
+
+```
 
 **Also need to see what happens when eg there are less than five lap goups on a page: how are empty col groups treated?**
 
@@ -568,6 +592,9 @@ We also get collision in the scrape of the team name and the drivers. We should 
 paste(strsplit('AB DevelopmentsAndy', "(?<=[a-z])(?=[A-Z])", perl = TRUE)[[1]], collapse=' :: ')
 ```
 
+I'm going to park that for now...
+
+
 How about getting the column names from a specified row?
 
 ```R
@@ -587,6 +614,16 @@ class_df <- class_df[-(1:headerrow),]
 
 class_df[1:5,]
 ```
+
+Let's also clean the class column of invited cars:
+
+```R
+class_df$CLASS = gsub(' INV', '', class_df$CL)
+class_df$INV = endsWith(class_df$CL, ' INV')
+class_df[10:15,]
+```
+
+Next up, how can we split the data from the classification PDF into the classified, not classified, and fastest time datasets?
 
 ```R
 allInOne <- class_df %>% unite('allInOne',colnames(class_df), sep='')
@@ -616,28 +653,89 @@ class_df[1:(unclassified_row-1),]
 And the unclassified cars:
 
 ```R
-class_df[(unclassified_row+1):(fastestLap_row-1),]
+unclassified_df <- class_df[(unclassified_row+1):(fastestLap_row-1),]
+unclassified_df
 ```
 
-Let's also clean the class column of invited cars:
+Maybe simplest to just drop the non-timing data rows and grab driver metadat by JOINing somewhere on `NO`?
 
 ```R
-class_df$CLASS = gsub(' INV', '', class_df$CL)
-class_df$INV = endsWith(class_df$CL, ' INV')
-class_df[10:15,]
-```
-
-```R
-
+unclassified_df[unclassified_df[,]]
 ```
 
 ```R
+unclassified_df[unclassified_df['POS']!='',]
+```
+
+#### Lap Analysis Pages
+
+The `LAP ANALYSIS` pages record the laptimes for each vehicle, by vehicle. The data is arranged in two columns. Within a column, a vehicle is identified, their laptimes given, and the next vehicle identified. Times for a given vehicle may overflow from one column to the next, or from the second column on the page into the first column of the next.
+
+```R
+extract_tables('results/Dunlop Endurance Championship.pdf', pages = 41, 
+                          header=F, guess=F, output='data.frame')[[1]][1:10,]
+```
+
+To scrape this table, we need to:
+
+- identify the vehicle;
+- identify the laptimes recorded for the vehicle.
+
+The data provided for each lap is:
+
+- lap number;
+- lap time;
+- laptime difference to personal best lap;
+- speed (average speed for the lap);
+- time of day.
+
+The vehicle's three bast lap times are annotated, as are pit laps (that is, inlaps). The outlap will be significantly longer and includes the pit stop and pit lane loss times. Inlap times may be less than the fastest lap time if the time is set near the start of the pit lane.
+
+```R
+#df$OUT = lag(df$PIT,1)
+```
+
+## Safety Car Laps
+
+Can we identify those? They are highlighed in yellow on the PDFs but `tabulizer` doesn't flag that up in any way.
+
+It looks like there is a *flag* history that we can draw on to detect this, at least in terms of time.
+
+We can also get lap start time by lap number from the `Lap Chart` tables and build up a picture of the race from those times and the flag times.
+
+```R
+extract_tables('results/Dunlop Endurance Championship.pdf', pages = 54, 
+                          header=F, guess=F, output='data.frame')[[1]]
 
 ```
 
 ```R
 
 ```
+
+```R
+
+```
+
+```R
+
+```
+
+## Comparing Driver Performance - In Class
+
+To ensure balanced racing, race promoters need to ensure that cars and drivers are appropriately classed.
+
+One way to check this is to compare racing lap times, which is to say laptimes:
+
+- that are not PIT related (in-lap or out-lap);
+- that are not completed under safety car or full course yellow flags.
+
+Note that there other ways we might compare drivers:
+
+- INLAP and OUTLAP times; (can we also get pit lane times somehow?)
+
+
+
 
 ```R
 
