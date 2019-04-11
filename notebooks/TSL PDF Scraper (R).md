@@ -16,7 +16,32 @@ jupyter:
 
 Scraper for extractng results and timing data from TSL results documents.
 
-The python tabula wrapper doesn't appear to work... so let's try the R one...
+This initial scraper is based primarily on Britcar timing sheets, although examples are also given around some BTCC timing sheets.
+
+Hopefully, the timing sheets are consistent. If not, this scraper will be nothing more than a bespoke curiousity, although it may provide colues to a more robust scraper.
+
+If nothing else, this should work as a walkthrough of how to scrape tables from a variety of PDF documents.
+
+Where possible, data will be scraped into database tables that use a similar structure to the tables used in the `ergast` motor racing database.
+
+The Python Tabula wrapper doesn't appear to work for me... so this notebook will use the *R* `tabulizr` package.
+
+
+## TSL Timing Sheets
+
+TSL publish (and archive) a range of timing sheet documents for the race series they provide timing services for.
+
+A range of sheets are bundled in a "PDF book" for each race series. The scraper described here is designed to scrape data from the sheets contained within a PDF book into a simple SQLite database.
+
+The range of timing sheets published by TSL includes:
+
+```R
+
+```
+
+## Making a Start
+
+The `tabulizer` package provides an R wrapper around the [tabulapdf/tabula-java](https://github.com/tabulapdf/tabula-java) service that underpins the browser based [*Tabula*](https://tabula.technology/) PDF table scraping application.
 
 ```R
 #install.packages("tabulizer")
@@ -76,7 +101,10 @@ Let's work on the assumption that the first none copyright related notice is the
 
 library(rlist)
 library(magrittr)
-library(stringi)
+
+#library(stringi)
+
+library(stringr)
 
 #Clean whitespace
 items <- list.map( strsplit( extract_text('results/Dunlop Endurance Championship.pdf', page=1)[[1]], '\n') , trimws(.) )
@@ -165,6 +193,14 @@ for (page in 1:extract_metadata(PDF)$pages){
 }
 ```
 
+We can also get information about how many pages into a group of pages a given page is from the footer:
+
+```R
+pages = str_match(extract_text(PDF, pages = 1, area = list(c(810, 0, 1000, 600))), '.*Page ([0-9]+ of [0-9]*) *')[,2]
+
+ifelse(is.na(pages), "1 of 1", pages)
+```
+
 Let's see if we can make a lookup table / dataframe for the sessions:
 
 ```R
@@ -205,6 +241,10 @@ details <- get_TSL_PDF_pages(PDF)
 details[1:5,]
 ```
 
+For the actual race table, we should also capture the event and the session start time. We might also want to capture the weather.
+
+The event is the circuit, the date, and the event name.
+
 ```R
 details <- get_TSL_PDF_pages('results/Dunlop Endurance Championship.pdf')
 details[1:5,]
@@ -229,6 +269,16 @@ WHERE series="Dunlop Endurance Championship"
 
 dbGetQuery(db, q)
 
+```
+
+We can try to be more structured in out creation of data tables by creatig them in a more normalised form. We can make use of functions in Simon Willison's `csvs_to_sqlite` command line tool to normalise the data for us if we save the datafiles to CSV first. (We could call the functions from the native Python package by using reticulate, but let's play safe for now!)
+
+```R
+system2('csvs-to-sqlite',stdout=T, stderr=T)
+```
+
+```R
+details
 ```
 
 ## Extract Table Data
@@ -399,6 +449,32 @@ extract_table_as_df(PDF, pages = 5:10, header=F)
 
 Let's explore how to define settings for particular pages.
 
+
+#### Lap Chart
+
+The lap chart gives times recorded on each lead lap, with the report  split across five sets of grouped columns over one or more pages.
+
+Each grouped set of columns includes:
+
+- vehicle number (`NO`);
+- the time difference to the vehicle ahead (`BEHIND`);
+- the lap time as a string in the format *DD:HH:MM:S.MS* (`LAP TIME`).
+
+Data for a given lap is recorded over one or more columns. Metadata for each lap is given at the top of the first column associated with the lap. For example: `LAP 1 @ 16:55:57.584`. This metadata gives:
+
+- the lap number;
+- the clock time recorded at the end of the lap as completed by the race leader.
+
+So for example:
+
+`LAP 4 @ 16:59:13.069` records the leader's laptime as `1:04.309`. Lap 3 was recorded as `LAP 3 @ 16:58:08.760`.
+
+The clock time for the end of lap 4 = completion time of lap 3 plus leader lap time for lap 4:
+
+> `16:59:13.069 = 16:58:08.760 + 1:04.309`
+
+
+
 ```R
 extract_table_as_df('results/Dunlop Endurance Championship.pdf', pages = 63, header=F)
 ```
@@ -474,13 +550,13 @@ df[1:5,]
 
 ```R
 cols = c('NO','BEHIND','LAPTIME','PIT')
-names(df) <- rep(cols,5)
+names(df) <- make.unique(rep(cols,5))
 df[1:5,]
 ```
 
 ```R
 #https://stackoverflow.com/questions/12466493/reshaping-multiple-sets-of-measurement-columns-wide-format-into-single-columns
-reshape(df, idvar = 'NO', direction="long", new.row.names =1:10000,
+reshape(df, direction="long", new.row.names =1:10000,
         varying=list(c(1,5,9,13,17), c(2,6,10,14,18),c(3,7,11,15,19),c(4,8,12,16,20)),
         timevar='Count')
 ```
@@ -488,16 +564,13 @@ reshape(df, idvar = 'NO', direction="long", new.row.names =1:10000,
 Of course, it's never that simple... page 69, for example, where we get an overflow...
 
 ```R
-extract_tables('results/Dunlop Endurance Championship.pdf', pages = 69, header=F, guess=F, output='data.frame',
+lap_chart <- extract_tables('results/Dunlop Endurance Championship.pdf', pages = 69, header=F, guess=F, output='data.frame',
               columns= list(c(45,80,114,130,156,192,228,242,269,306,341,358,383,420,454,469,494,529, 568, 600)))[[1]][1:10,]
+lap_chart
+
 ```
 
-For that case, we need to detect whether the lap column headings are in place... Crap, crap, crap...
-
-Can maybe flag if the `NO` cell is identified. If it *isn't*, then we need to:
-
-- identify the column group that is overflowed;
-- append that from the `LAP` row to the column before.
+In some cases, the recorded laps may overflow from one column to the next;
 
 ```R
 as.data.frame( t( extract_table_as_df('results/Dunlop Endurance Championship.pdf', pages = 69, guess=F, header=F,
@@ -505,15 +578,46 @@ as.data.frame( t( extract_table_as_df('results/Dunlop Endurance Championship.pdf
 
 ```
 
-**Also need to see what happens when eg there are less than five lap goups on a page: how are empty col groups treated?**
+We can get around this by linearising the page from several grouped sets columns into a single, grouped selt of columns. We can then clean rows within the single group and append cleaned data from all pages into a single dataframe. From this single dataframe, we can then split the data into the data corresponding to each lap.
+
+```R
+lap_chart_cols = c('NO', 'BEHIND', 'LAP TIME', 'PIT')
+names(lap_chart) <- make.unique(rep(lap_chart_cols,5))
+
+reshape(lap_chart, direction="long", new.row.names =1:10000,
+        varying=list(c(1,5,9,13,17), c(2,6,10,14,18),c(3,7,11,15,19),c(4,8,12,16,20)),
+        timevar='Count')[1:10,]
+```
+
+```R
+lap_chart_cols = c('NO', 'BEHIND', 'LAP TIME', 'PIT')
+names(lap_chart) <- make.unique(rep(lap_chart_cols,5))
+lap_chart 
+```
+
+We can identify the lap rows by reshaping at the column group level:
+
+```R
+lap_chart_group <- extract_table_as_df('results/Dunlop Endurance Championship.pdf', pages = 68, guess=F, header=F,
+                    columns=list(c(125, 237, 350, 464, 600))) 
+names(lap_chart_group) <- make.unique(rep('LAP',5))
+
+lap_chart_group_long <- reshape(lap_chart_group, direction="long", new.row.names =1:10000,
+        varying=list(c(1,2,3,4,5)),
+        timevar='Count')
+
+lap_rows <- which(grepl("^LAP ", lap_chart_group_long$LAP))
+lap_chart_group_long[lap_rows,]
+```
+
+**TO DO: Need to see what happens when eg there are less than five lap goups on a page: how are empty col groups treated?**
 
 
-Park these for now...
-
-
-In the meantime, let's see how to put data from multipe pages into one dataframe.
+The next step is to aggregate data from multipe pages into one dataframe.
 
 The lap number will be the lap increment multipled by the page number.
+
+We could also grab the `Page M from N` footer information as the basis for which pages in the PDF to aggregate.
 
 ```R
 dfs <- extract_tables('results/Dunlop Endurance Championship.pdf', pages = 63:64, header=F, guess=F, output='data.frame',
@@ -538,11 +642,13 @@ for(df in dfs){
     df <- df %>% slice(startrow:endrow)
     
     cols = c('NO','BEHIND','LAPTIME','PIT')
-    names(df) <- rep(cols,5)
+    names(df) <- make.unique(rep(cols,5))
     
-    df <- reshape(df, idvar = 'NO', direction="long", new.row.names =1:10000,
+    df <- reshape(df,  direction="long", new.row.names =1:10000,
         varying=list(c(1,5,9,13,17), c(2,6,10,14,18),c(3,7,11,15,19),c(4,8,12,16,20)),
         timevar='Count')
+    
+    #We can drop the id column
     
     df$Lap <- df$Count * pageCount
     
@@ -585,14 +691,20 @@ Some rows may also overflow to second rows, especially in eg the `NOT CLASSIFIED
 
 So we need to cope with that...
 
-We also get collision in the scrape of the team name and the drivers. We should be able to recover that from other sheets, but it's a real pain here unless we use a heuristic of splittling on camelcase, although that doesn't help if lats part of a team name is in uppercase:-(
+The team and driver details may be merged into each other. We should be able to recover that from other sheets, but it's a real pain here unless we use a heuristic of splitting on camelcase.
 
 ```R
 #https://stackoverflow.com/a/43706490/454773
-paste(strsplit('AB DevelopmentsAndy', "(?<=[a-z])(?=[A-Z])", perl = TRUE)[[1]], collapse=' :: ')
+paste(strsplit('JMH AutomotiveJohn SEALE / Marcus CLUTTON', "(?<=[a-z])(?=[A-Z])", perl = TRUE)[[1]], collapse=' :: ')
 ```
 
-I'm going to park that for now...
+There are, however, likely to be exceptions, for example if the latter part of a team name is in uppercase:-(
+
+```R
+paste(strsplit('Team BRITMartyn COMPTON / Warren MCKINLAY', "(?<=[a-z])(?=[A-Z])", perl = TRUE)[[1]], collapse=' :: ')
+```
+
+If we can get the team names from elsewhere, in the same format, we could just replace them out of this column.
 
 
 How about getting the column names from a specified row?
@@ -690,6 +802,126 @@ The data provided for each lap is:
 - time of day.
 
 The vehicle's three bast lap times are annotated, as are pit laps (that is, inlaps). The outlap will be significantly longer and includes the pit stop and pit lane loss times. Inlap times may be less than the fastest lap time if the time is set near the start of the pit lane.
+
+```R
+extract_tables('results/Dunlop Endurance Championship.pdf', pages = 41, header=F, guess=F, output='data.frame',
+                    columns= list(c(52,98,115,168,210,300,352,396,419,467,508, 600)))[[1]]
+```
+
+First, let's split everything into two columns and try to pull out driver names and the rows they are associated with.
+
+The driver rows start with a `P` for the position.
+
+```R
+lap_analysis_vehicle = extract_tables('results/Dunlop Endurance Championship.pdf', pages = 41, header=F, guess=F, output='data.frame',
+                    columns= list(c(300, 600)))[[1]]
+
+lap_analysis_vehicle = reshape(lap_analysis_vehicle, direction="long", new.row.names =1:10000,
+    varying=list(c(1,2)), timevar='Col') 
+
+
+vehicle_rows = which(grepl('P[0-9]+',trimws(lap_analysis_vehicle[,'V1'])))
+lap_analysis_vehicle[vehicle_rows,'V1']
+
+```
+
+```R
+teams <- data.frame(lap_analysis_vehicle[vehicle_rows,'V1']) %>% extract(1, c('POS','NO','TEAM'), 
+                                                                regex = "(P[0-9]+) ([0-9]+) (.*)")
+
+teams
+```
+
+```R
+#Generate the pairwise ranges
+#https://stackoverflow.com/a/41206700/454773
+lap_ranges <- rbind(vehicle_rows[-length(vehicle_rows)], vehicle_rows[-1])
+lap_ranges <- split(lap_ranges, col(lap_ranges))
+```
+
+Now let's split the data into two groups of 6 columns, and try to split the data out by driver.
+
+We have the rows that mark each drive, so use that as the first approximate pass.
+
+This first attempt is just on a single page.
+
+```R
+lap_analysis = extract_tables('results/Dunlop Endurance Championship.pdf', pages = 41,
+                              header=F, guess=F, output='data.frame',
+                              columns= list(c(52,98,115,168,210,300,352,396,419,467,508, 600)))[[1]]
+
+lap_analysis_cols = c('LAP','LAP TIME','ANN','DIFF','MPH','TIME OF DAY')
+names(lap_analysis) <- make.unique(rep(lap_analysis_cols,2))
+
+lap_analysis <- reshape(lap_analysis, direction="long", new.row.names =1:10000,
+    varying=list(c(1,7), c(2,8),c(3,9),c(4,10),c(5,11),c(6,12)), timevar='Col')
+
+full_lap_analysis <- data.frame()
+#Need to autsplit into groups
+for (lap_range in lap_ranges){
+    full_lap_analysis <- rbind(full_lap_analysis, lap_analysis[lap_range[1]:(lap_range[2]-1),] )
+
+    }
+
+#Clear blank rows and head row
+full_lap_analysis <- full_lap_analysis[!(full_lap_analysis$LAP %in% c("","LAP")) , ]
+
+#Merge in driver details
+
+full_lap_analysis <- full_lap_analysis %>%
+                    mutate(POS = str_extract(LAP, "(P[0-9]+)")) %>%
+                    fill(POS)  %>% 
+                    inner_join(teams) %>%
+                    #Drop the Col and id columns
+                    select(-c(id,Col)) %>%
+                    #Drop the position header rows
+                    filter(!startsWith(LAP,'P')) %>%
+                    #Tidy the lap column
+                    mutate(LAP = str_extract(LAP, "([0-9]+) ")) %>%
+                    #Tidy the POS column
+                    mutate(POS = str_extract(POS, "([0-9]+)"))
+
+full_lap_analysis#[1:10,]
+
+```
+
+We now need to identify
+
+
+Now let's tidy that up and apply it to several pages.
+
+```
+#muliple pages
+pageCount <- 1
+
+full_df = data.frame()
+
+for(df in dfs){
+    
+    startrow <- which(startsWith(df[,1],'NO'))+1
+    
+    blanks <- which(df[,1]=='')
+    endrow <- min(blanks[blanks>startrow]) -1
+    
+    df <- df %>% slice(startrow:endrow)
+    
+    cols = c('NO','BEHIND','LAPTIME','PIT')
+    names(df) <- make.unique(rep(cols,5))
+    
+    df <- reshape(df, direction="long", new.row.names =1:10000,
+        varying=list(c(1,5,9,13,17), c(2,6,10,14,18),c(3,7,11,15,19),c(4,8,12,16,20)),
+        timevar='Count')
+    
+    df$Lap <- df$Count * pageCount
+    
+    full_df = rbind(full_df, df)
+    
+    
+    pageCount <- pageCount + 1
+}
+
+full_df
+```
 
 ```R
 #df$OUT = lag(df$PIT,1)
