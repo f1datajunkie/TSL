@@ -16,6 +16,15 @@ jupyter:
 
 Scraper for extractng results and timing data from TSL results documents.
 
+
+Part of a set of tools that will:
+
+- automate the detection and selection of scrapers from the timing sheet document type;
+- save *pandas* dataframe versions of the data as (unindexed) CSV files;
+- automate the generation of file names and save dataframes from the document type;
+- automate the scrapes to take a timing results booklet PDF and save one or more tables using CSV format for each document it contains.
+
+
 This initial scraper is based primarily on Britcar timing sheets, although examples are also given around some BTCC timing sheets.
 
 Hopefully, the timing sheets are consistent. If not, this scraper will be nothing more than a bespoke curiousity, although it may provide colues to a more robust scraper.
@@ -33,11 +42,19 @@ TSL publish (and archive) a range of timing sheet documents for the race series 
 
 A range of sheets are bundled in a "PDF book" for each race series. The scraper described here is designed to scrape data from the sheets contained within a PDF book into a simple SQLite database.
 
-The range of timing sheets published by TSL includes:
+The range of timing sheets published by TSL for an event may include some or all of the following sheets for practice, qualifying and race:
 
-```R
+- CLASSIFICATION
+- 2ND FASTEST CLASSIFICATION
+- SECTOR ANALYSIS
+- BEST SPEEDS
+- BEST SECTORS
+- WEATHER CONDITIONS
+- STATISTICS
+- GRID
+- LAP CHART
+- POSITION CHART
 
-```
 
 ## Making a Start
 
@@ -107,6 +124,7 @@ library(magrittr)
 library(stringr)
 
 #Clean whitespace
+#THe list.map function applies the split to each item in the list
 items <- list.map( strsplit( extract_text('results/Dunlop Endurance Championship.pdf', page=1)[[1]], '\n') , trimws(.) )
 
 #Remove empty list items
@@ -196,9 +214,14 @@ for (page in 1:extract_metadata(PDF)$pages){
 We can also get information about how many pages into a group of pages a given page is from the footer:
 
 ```R
-pages = str_match(extract_text(PDF, pages = 1, area = list(c(810, 0, 1000, 600))), '.*Page ([0-9]+ of [0-9]*) *')[,2]
+getPageMofN <- function(PDF, pages=NULL){
+    pages = str_match(extract_text(PDF, pages = pages, area = list(c(810, 0, 1000, 600))),
+                  '.*Page ([0-9]+ of [0-9]*) *')[,2]
 
-ifelse(is.na(pages), "1 of 1", pages)
+    ifelse(is.na(pages), "1 of 1", pages)
+    }
+
+getPageMofN(PDF)
 ```
 
 Let's see if we can make a lookup table / dataframe for the sessions:
