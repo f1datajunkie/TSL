@@ -359,7 +359,9 @@ CREATE TABLE IF NOT EXISTS  "{_table}" (
   "Gap" TEXT,
   "Diff" TEXT,
   "Best" TEXT,
-  "Last" TEXT ,
+  "BestInS" FLOAT,  
+  "Last" TEXT,
+  "LastInS" FLOAT,
   "PS" FLOAT,
   "S1" TEXT,
   "V1" FLOAT,
@@ -462,6 +464,39 @@ conn = sqlite3.connect(dbname, timeout=10)
 
 q="SELECT * FROM tsl_timing_classification;"
 pd.read_sql(q,conn)
+```
+
+```python
+#Preferred time format
+def formatTime(t):
+    return float("%.3f" % t)
+
+# Accept times in the form of hh:mm:ss.ss or mm:ss.ss
+# Return the equivalent number of seconds and milliseconds
+def getTime(ts, ms=False):
+    ts=str(ts)
+    t=ts.strip()
+    if t=='': return pd.to_datetime('')
+    if ts=='P': return None
+    if 'LAP'.lower() in ts.lower():
+        ts=str(1000*int(ts.split(' ')[0]))
+    t=ts.split(':')
+    if len(t)==3:
+        tm=60*int(t[0])+60*int(t[1])+float(t[2])
+    elif len(t)==2:
+        tm=60*int(t[0])+float(t[1])
+    else:
+        tm=float(t[0])
+    if ms:
+        #We can't cast a NaN as an int
+        return float(1000*formatTime(tm))
+    return float(formatTime(tm))
+```
+
+```python
+df['LastInS']=df['Last'].apply(getTime)
+df['BestInS']=df['Best'].apply(getTime)
+df.head()
 ```
 
 We can then easily save the dataframe to a CSV file:
@@ -826,7 +861,7 @@ while True:
                 setPageTab(browser, 'Classification', preview=False)
             print('Session should have completely finished...')
             awaiting_result = False
-            #ALso grab final classification table as a complete, separate thing
+            #Also grab final classification table as a complete, separate thing
             #?need to create table?
             #timingScreenToDB(browser, DB, '{}_final_timing_screen'.format(_table))
             #setPageTab(browser, 'Statistics')
