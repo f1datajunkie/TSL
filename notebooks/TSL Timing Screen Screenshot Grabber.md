@@ -54,6 +54,7 @@ url = "https://livetiming.tsl-timing.com/191231"
 url = 'https://livetiming.tsl-timing.com/191209'
 url='https://livetiming.tsl-timing.com/191431'#brscc april 6
 #url='https://livetiming.tsl-timing.com/191403' #btcc april 6
+url='https://livetiming.tsl-timing.com/191521' #croft barc april 13
 ```
 
 Some web pages take time to load. For example, the TSL live timing screens are likely to show a spinny thing when a timing screen page is first loaded.
@@ -98,6 +99,41 @@ browser.save_screenshot( outfile )
 print('screenshot saved to {}'.format(outfile))
 ```
 
+Preview the captured page:
+
+```python
+from IPython.display import Image
+Image(outfile)
+```
+
+```python
+from selenium.common.exceptions import TimeoutException
+
+#This will return something if it loads within the specified maxwait
+def initBrowser(url, maxwait=10):
+    ''' Launch a new browser and '''
+    browser = webdriver.Firefox(options=options)
+    browser.get(url)
+    
+    try:
+        element = WebDriverWait(browser, maxwait).until( EC.invisibility_of_element_located((By.ID, undesiredId)))
+    except TimeoutException as e:
+        browser.close()
+        return None
+
+    return browser
+
+
+#Note that we can also reload a page (ctrl-R) with:
+#browser.refresh()
+```
+
+```python
+browser=initBrowser(url)
+browser.save_screenshot( outfile )
+Image(outfile)
+```
+
 ## Tabs
 
 - Classification: current ranking
@@ -105,13 +141,6 @@ print('screenshot saved to {}'.format(outfile))
 - Weather:
 - Statistics: fasest laps etc
 
-
-Preview the captured page:
-
-```python
-from IPython.display import Image
-Image(outfile)
-```
 
 We can also grab other tabs...
 
@@ -150,7 +179,7 @@ def text_value_from_xpath(driver, xpath):
     try:
         el = driver.find_element_by_xpath(xpath)
     except NoSuchElementException:
-        return None
+        return ''
     return el.text
 
 #check_exists_by_xpath(browser, '//*[@id="currentflag"]')
@@ -198,30 +227,55 @@ sessionTime = text_value_from_xpath(browser, sessionTime_path )
 sessionTime
 ```
 
+```python
+def tableNameCleaner(t):
+    if t:
+        t = t.replace('/','').replace(' - ','_').replace('-','_').replace(' ','_').upper()
+        t = t.replace('QUALIFYING','Q').replace('RACE','R').replace('CHAMPIONSHIP','')
+    return t
+    
+def getInfo(browser):
+    series_path='//*[@id="seriesName"]/span[2]'
+    series = text_value_from_xpath(browser, series_path)
+    
+    session_path = '//*[@id="sessionName"]/span[2]'
+    session = text_value_from_xpath(browser, session_path )
+
+    return {'series':series,
+            'session':session,
+             'tablename': tableNameCleaner('{}_{}'.format(series,session)) }
+```
+
+```python
+ getInfo(browser)
+```
+
 ### Grabbing Images of the Timing Screen
 
 We can create a simple function to use *selenium* to grab png screenshots of a particular tab on the timing screen.
 
 ```python
-def getPageByTab(browser,url, tabId='Classification', ofn=None):
+def setPageTab(browser, tabId='Classification', ofn=None, preview=True):
     ''' Simple function to view a particular tab within a TSL timing screen. '''
-
+    #ofn is output filename
     element = browser.find_element_by_id(tabId)
     element.click()
     element = WebDriverWait(browser, 10).until( EC.visibility_of_element_located((By.ID, tabId)))
 
     ofn = ofn if ofn is not None else '{}_{}.png'.format(outfile.replace('.png',''),tabId)
 
-    #Save the page
-    browser.save_screenshot( ofn )
-    print('screenshot saved to {}'.format(ofn))
-    display(Image(ofn))
-    return ofn
+    if preview:
+        #Save the page
+        browser.save_screenshot( ofn )
+        print('screenshot saved to {}'.format(ofn))
+        display(Image(ofn))
+
+        return ofn
 ```
 
 ```python
 #url = 'https://livetiming.tsl-timing.com/191209'
-getPageByTab(browser, url, 'Classification')
+setPageTab(browser,'Classification')
 ```
 
 We could create a meaningful filename from the series and session metadata. For example:
@@ -230,7 +284,7 @@ We could create a meaningful filename from the series and session metadata. For 
 #get file name
 fn = '{}_{}.png'.format(series.replace('/','_'), session.replace('/','_') )
 
-getPageByTab(browser, url, 'Classification', fn)
+setPageTab(browser, 'Classification', fn)
 ```
 
 We can get also access to the actual HTML via the element's `innerHTML()` attribute:
@@ -258,17 +312,51 @@ df.head()
 df.dtypes
 ```
 
+We also need to get the flag status. This is on path `//*[@id="tablebody"]/tbody/tr[3]/td[2]/div[1]`
+
 ```python
+browser=initBrowser(url)
+```
+
+```python
+els = browser.find_elements_by_xpath('//*[@id="tablebody"]/tbody/tr[*]/td[2]/div[1]')
+for el in els:
+    print(el.get_attribute("class").split(' ')[-1])
+```
+
+Let's make a function for that:
+
+```python
+def getPosIcon(browser):
+    els = browser.find_elements_by_xpath('//*[@id="tablebody"]/tbody/tr[*]/td[2]/div[1]')
+    icons=[]
+    for el in els:
+        icons.append(el.get_attribute("class").split(' ')[-1])
+    return pd.DataFrame({'icons':icons})
+
+getPosIcon(browser)
+```
+
+```python
+df['icons'] = getPosIcon(browser)['icons']
+df
+```
+
+```python
+#Create this as a temporary table for a particular session
+#Then think about merging into to a full table overal sessions / events etc
+
 classification_table = '''
-CREATE TABLE "tsl_timing_classification" (
+CREATE TABLE IF NOT EXISTS  "{_table}" (
   "Pos" INTEGER,
   "Penalties" TEXT,
+  "Icons" TEXT,
   "No" INTEGER,
   "Cl" TEXT,
   "PIC" INTEGER,
   "Name" TEXT,
   "Laps" INTEGER,
-  "TimeGap" TEXT,
+  "Gap" TEXT,
   "Diff" TEXT,
   "Best" TEXT,
   "Last" TEXT ,
@@ -292,19 +380,20 @@ CREATE TABLE "tsl_timing_classification" (
 import sqlite3
 from sqlite_utils import Database
 
-dbname='testlive7.db'
+dbname='new_testlive.db'
 
-!rm $dbname
+#!rm $dbname
 conn = sqlite3.connect(dbname, timeout=10)
 
+_table = 'tsl_timing_classification'
 
 #Setup database tables
 c = conn.cursor()
-c.executescript(classification_table)
+c.executescript(classification_table.format(_table=_table))
 
 
 DB = Database(conn)
-_table = 'tsl_timing_classification'
+
 ```
 
 If we grab the classification table with a period slightly less than that of the fastest sector time, and upsert on the table using the (car number, lap, gap) as a unique key, then we should make sure we capture all the laps and the sector times, though we will need to do a little bit of processing of the multiple rows captured for each driver for each lap. (As the timing screen is live, as the leader goes onto a new lap, every other driver goes at least 1 Lap behind; we have to recover from such things.)
@@ -314,7 +403,7 @@ The *(car number, lap, previous lap)* combination should also be unique. (I need
 My original method used upserts to prevent collisions, but that's wrong, I think. SQLite lets us add a condirtion to the PK in a table definition that will ignore conflicts, so we can add a car number / lap combination to the tabe as soon as we see it, and then if we upload it again, perhaps with the `TimeGap` reset to `Lap 1` by the lead car starting a new lap, we can just ignore it.
 
 ```python
-url = 'https://livetiming.tsl-timing.com/191403'
+url = 'https://livetiming.tsl-timing.com/191521'
 browser = webdriver.Firefox(options=options)
 browser.get(url)
 ```
@@ -322,7 +411,7 @@ browser.get(url)
 ```python
 #should perhap have a wait here to just make sure evrything is loaded...
 #Or perhaps better, a guard at end of previous cell
-getPageByTab(browser, url, 'Classification')
+setPageTab(browser, 'Classification')
 ```
 
 ```python
@@ -339,7 +428,7 @@ while True:
     #Parse out the data
     df = pd.read_html( el.get_attribute('innerHTML'))[0].dropna(axis=1,how='all')
     #Tidy up the column names
-    df.rename(columns={'Time/Gap':'TimeGap',
+    df.rename(columns={'Time/Gap':'Gap',
                        'Unnamed: 1':'Penalties'}, inplace=True)
     #Upsert the date
     #DB[_table].upsert_all(df.to_dict(orient='records'))
@@ -356,9 +445,14 @@ I need to rethink the logic...
 
 We need to grab the timing screen just after a car has lapped; at this point, the sector times will be the sector times from the previous lap.
 
-When the leader laps, the other cars show `1 Lap` in the `TimeGap` column. When one of those car laps, we want to capture it. The unique key is the car number, and the lap number. When a car completes a lap, all the sector times are in place, lap counter increments and so does the last lap time. So we don't need an upsert. We need to add the new PK key and ignore any other updates.
 
-So need to check the df to see if the PK is already taken, and if it is, donlt add the row.
+Thinking this through: we need to sample at a rate less than the min sector time to grab all the sector time data. To capture the gap data, we need to sample between the last car on the lead lap and the leader (this makes sure we have a full column of times). Or we just forgo the Gap as noise? What's important is that we get the lap and sector times? Which is the first sampling of the row for a particular (vehicle number / lap) key pair.
+
+When the leader laps, the other cars show `1 Lap` in the `Gap` column. When one of those car laps, we want to capture it. The unique key is the car number, and the lap number. When a car completes a lap, all the sector times are in place, lap counter increments and so does the last lap time. So we don't need an upsert. We need to add the new PK key and ignore any other updates.
+
+To get sector times, we only need to sample with a period less than the minimum sector time. To grab the correct gap to leader time, the sample for a driver on a given lap has to be made while they are on the lead lap. The diff should always be correct?
+
+So need to check the df to see if the PK is already taken, and if it is, don't add the row.
 
 ```python
 dbname='testlive4.db'
@@ -368,10 +462,6 @@ conn = sqlite3.connect(dbname, timeout=10)
 
 q="SELECT * FROM tsl_timing_classification;"
 pd.read_sql(q,conn)
-```
-
-```python
-28.861+38.96+24.676
 ```
 
 We can then easily save the dataframe to a CSV file:
@@ -410,7 +500,7 @@ Note that we might also want to think about defining the database columns more f
 We can also grab data from tabs other than the *Classification* tab:
 
 ```python
-getPageByTab(browser, url, 'Statistics')
+setPageTab(browser, 'Statistics')
 ```
 
 ```python
@@ -462,11 +552,18 @@ el.text
 pd.read_html( '<table>{}</table>'.format(el.get_attribute('innerHTML')))[0].dropna(axis=1,how='all')
 ```
 
+Create a function to grab statistcs tab data.
+
+```python
+def statisticsScreenToDB(browser, DB, _table='test_stats'):
+    pass
+```
+
 ```python
 #get file name
 fn = '{}_{}.png'.format(series, session )
 
-getPageByTab(browser, url, 'Classification', fn)
+setPageTab(browser, 'Classification', fn)
 ```
 
 ```python
@@ -509,6 +606,64 @@ The aim here is to grab a copy of the screen classification when the race has fi
 #Safety Car
 ```
 
+Set up the database:
+
+```python
+def initDb(dbname='test.db'):
+    dbname='new_testlive2.db'
+    
+    #TO DO: change to py fn
+    #!rm $dbname
+    
+    conn = sqlite3.connect(dbname, timeout=10)
+
+    #Setup database tables
+    c = conn.cursor()
+    c.executescript(classification_table)
+
+
+    DB = Database(conn)
+    _table = 'tsl_timing_classification'
+    
+    return DBconn
+```
+
+```python
+def timingScreenToDB(browser, DB, _table='testTable'):#, period=15):
+
+    xpath = '//*[@id="ResultsTableContainer"]'
+
+    #Grab the timing screen
+    el = browser.find_element_by_xpath(xpath)
+
+    #Parse out the data
+    df = pd.read_html( el.get_attribute('innerHTML'))[0].dropna(axis=1,how='all')
+    #Tidy up the column names
+    df.rename(columns={'Time/Gap':'Gap',
+                       'Unnamed: 1':'Penalties'}, inplace=True)
+    
+    #Get the icon status
+    df['icons'] = getPosIcon(browser)['icons']
+    #Upsert the date
+    #DB[_table].upsert_all(df.to_dict(orient='records'))
+    #insert the data - this assumes the insert conflict ignore definition on the table
+    DB[_table].insert_all(df.to_dict(orient='records'))
+    #print('.',end='')
+    #time.sleep(period)
+
+    #outfile='tmp.png'
+    #browser.save_screenshot( outfile )
+    #Can we get this to just update the same image?
+    #display(Image(outfile))
+    
+    #TO DO - also record time stamp; and maybe in another table, flag status vs timestamp
+    #so then we can easily retrieve eg approximate safety car periods etc
+```
+
+The timing screen goes into a blank state when waiting for a new race. We may need to refresh it every so often when waiting for a new race to start. Do this with: `browser.refresh()`
+
+Note that if we do this we need to set a wait for the page to load before we try to work on it.
+
 ```python
 url_brscc = 'https://livetiming.tsl-timing.com/191431'
 url_btcc='https://livetiming.tsl-timing.com/191403' #btcc april 6
@@ -519,38 +674,185 @@ browser.get(url_btcc)
 ```
 
 ```python
+url='https://livetiming.tsl-timing.com/191521'
+#url='https://livetiming.tsl-timing.com/191531'
+
+```
+
+```python
+getInfo(browser)
+```
+
+```python
+_table= getInfo(browser)['tablename']
+c.executescript(classification_table.format(_table=_table))
+```
+
+If there is a long wait to the next race, the timing screen reports a `Scheduled Start` time. We can compare the current time to the scheduled start time, and if there is a long wait, we could go to sleep for a bit...
+
+So how can we work out how long to wait?
+
+```python
+#What's the time now?
+from datetime import datetime
+n = datetime.now()
+n
+```
+
+```python
+#What's the schedule start time?
+from dateutil import parser
+s = parser.parse("{} {} {} {}".format(n.year, n.month, n.day, '15:50'))
+s
+```
+
+```python
+#What's the difference?
+(s-n).seconds
+```
+
+```python
+n = datetime.now()
+s = parser.parse("{} {} {} {}".format(n.year, n.month, n.day, '17:40'))
+(s-n).days
+```
+
+```python
+def waitTimeToStart(tts, delay=120):
+    ''' Calculate a sensible sleep time given the cirrent time and the scheduled start time.
+        The delay gives the time before the scheduled start time we're happy to sleep until.
+    '''
+    n = datetime.now()
+    s = parser.parse("{} {} {} {}".format(n.year, n.month, n.day, tts))
+    tts = (s-n)
+    
+    #If the time is after the scehduled start time, wait a minute...
+    #Seems we donlt get negative seconds?
+    if tts.days < 0: 
+        return 60
+    #If the time is within the presecribed delay period, no need for an extra wait
+    elif tts.seconds<delay:
+        return 0
+    else:
+        return (s-n).seconds - delay
+```
+
+```python
 import time
 
 #Start to build up the logic
 
+period=75
+period_lap = 95 #This is the time we'll after we record the race as finished before declaring a result
+#This means we declare a result at most period+period_lap after we first see FINISHED flag
+
+finishedwait=60
+refresh_before_scheduled_start = 120
+
 #If we are in a race
+browser = initBrowser(url)
 
-
-race_on = True #if race is running or flagged?
-awaiting_result=True
-
-while race_on and awaiting_result:
+showpreview=True
+while True:
     
-    #Better to use some heuristics here eg based on time left in sessiontime
-    #Only issue there is if a race is red flagged so is race clock/sessionTime?
-    #So maybe try to grab close race start time, ish, and sessionTime at that point
-    #and generate a heuristic about earliest time race is expected to finish?
-    time.sleep(5)
+    #Reload the browser after each race
+    browser = initBrowser(url)
+    
+    setPageTab(browser, 'Classification', preview=showpreview)
+
     flag = text_value_from_xpath(browser, flag_path )
-    
-    #carry on waiting
     if flag.upper()=='FINISHED':
-        awaiting_result = False
-        
+        print('Still on screen from previous race')
+        time.sleep(finishedwait)
+        showpreview=False
+        continue
+    showpreview=True
+    
+    #Start doing setup for a particular race here
+    #Need to check we have a valid table name
+    #If not, do a delay and then continue back to repeat the loop
+    _table= getInfo(browser)['tablename']
+    if not _table or _table=='':
+        print('Nothing seems to be on the timing screen...Wait a couple of minutes...')
+        wait(120)
+        continue
+    
+    #If the scheduled start is some time away, wait until a few mins before the scheduled start
+    #Or should we keep polling...
+    #What happens over lunch? The previous table chekc should catch things there?
+    
+    #eg: Scheduled Start: 15.50 20:00
+    if flag.startswith('Scheduled Start'):
+        waitfor = waitTimeToStart(flag.replace('Scheduled Start','').split()[1],refresh_before_scheduled_start) 
+        print('Race start {}; now {} so sleeping for {}s'.format(flag,datetime.now(),waitfor))
+        time.sleep( waitfor )
+        continue
+    
+    print("Creating table {} if it doesn't already exist".format(_table))
+    c.executescript(classification_table.format(_table=_table))
+
+
+    race_on = True if flag!='Finished' else False
+    
+    awaiting_result=True
+    letsgoracing = True
+    while race_on and awaiting_result:
+        if letsgoracing:
+            print('letsgoracing...')
+            letsgoracing =False
+            
+        #Better to use some heuristics here eg based on time left in sessiontime
+        #Only issue there is if a race is red flagged so is race clock/sessionTime?
+        #So maybe try to grab close race start time, ish, and sessionTime at that point
+        #and generate a heuristic about earliest time race is expected to finish?
+        #For some reason, the flag doesn't seem to update in the browser properly?
+        flag = text_value_from_xpath(browser, flag_path )
+        timingScreenToDB(browser, DB, _table)
+        print('.',end='')
+
+        sessionTime = text_value_from_xpath(browser, sessionTime_path )
+        print(flag, sessionTime, end='')
+        while flag.upper()=='FINISHED':
+            #We need to wait and do a final check - wait for time approx one lap
+            #Get worst best lap time and use that? 
+            time.sleep(period_lap)
+            #Then need to get guaranteed final times
+            #Need to guard that we do not do this if we have moved on to another race...
+            flag = text_value_from_xpath(browser, flag_path )
+            if flag.upper()=='FINISHED':
+                timingScreenToDB(browser, DB, _table)
+                #keep refreshing
+                browser = initBrowser(url)
+                setPageTab(browser, 'Classification', preview=False)
+            print('Session should have completely finished...')
+            awaiting_result = False
+            #ALso grab final classification table as a complete, separate thing
+            #?need to create table?
+            #timingScreenToDB(browser, DB, '{}_final_timing_screen'.format(_table))
+            #setPageTab(browser, 'Statistics')
+            #statisticsScreenToDB(browser, DB, '{}_final_statistics'.format(_table))
+        else:
+            #carry on waiting
+            time.sleep(period)
+
 
 fn = '{}_{}.png'.format(series, session )
 
 
 #Don't need to get the URL? Just dump the screenshot instead?
 #Browser is already good and if meeting is busy we may not be able to get a new connection onto timing screen?
-#getPageByTab(browser, url, 'Classification', fn)
+#setPageTab(browser, 'Classification', fn)
 
 browser.save_screenshot( fn )
+```
+
+```python
+sql = 'SELECT No, Name, Cl, MIN(Best) FROM {} WHERE Best IS NOT NULL GROUP BY No ORDER BY Cl, MIN(Best)'.format(_table)
+pd.read_sql_query(sql, conn)
+```
+
+```python
+
 ```
 
 # Emailing the screenshot
