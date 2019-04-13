@@ -454,7 +454,7 @@ When the leader laps, the other cars show `1 Lap` in the `Gap` column. When one 
 
 To get sector times, we only need to sample with a period less than the minimum sector time. To grab the correct gap to leader time, the sample for a driver on a given lap has to be made while they are on the lead lap. The diff should always be correct?
 
-So need to check the df to see if the PK is already taken, and if it is, don't add the row.
+So need to check the df to see if the PK is already taken, and if it is, don't add the row. Alternatively, we can define the SQLite database table to ignore any attempt to add a row for which the PK is already taken.
 
 ```python
 dbname='testlive4.db'
@@ -465,6 +465,8 @@ conn = sqlite3.connect(dbname, timeout=10)
 q="SELECT * FROM tsl_timing_classification;"
 pd.read_sql(q,conn)
 ```
+
+The times are reported as strings, which would could cast to intervals (the pandas 
 
 ```python
 #Preferred time format
@@ -679,6 +681,11 @@ def timingScreenToDB(browser, DB, _table='testTable'):#, period=15):
     
     #Get the icon status
     df['icons'] = getPosIcon(browser)['icons']
+    
+    #Add time in seconds for best and last
+    df['LastInS']=df['Last'].apply(getTime)
+    df['BestInS']=df['Best'].apply(getTime)
+    
     #Upsert the date
     #DB[_table].upsert_all(df.to_dict(orient='records'))
     #insert the data - this assumes the insert conflict ignore definition on the table

@@ -712,22 +712,9 @@ Note the exceptions... in a class, there may be `INV` (invited) cars.
 
 Some rows may also overflow to second rows, especially in eg the `NOT CLASSIFIED` or `FASTEST LAP` sections.
 
+Also note that the team and driver names are bunched in the main classification, but not in the other tables (not classified and fastest lap).
+
 So we need to cope with that...
-
-The team and driver details may be merged into each other. We should be able to recover that from other sheets, but it's a real pain here unless we use a heuristic of splitting on camelcase.
-
-```R
-#https://stackoverflow.com/a/43706490/454773
-paste(strsplit('JMH AutomotiveJohn SEALE / Marcus CLUTTON', "(?<=[a-z])(?=[A-Z])", perl = TRUE)[[1]], collapse=' :: ')
-```
-
-There are, however, likely to be exceptions, for example if the latter part of a team name is in uppercase:-(
-
-```R
-paste(strsplit('Team BRITMartyn COMPTON / Warren MCKINLAY', "(?<=[a-z])(?=[A-Z])", perl = TRUE)[[1]], collapse=' :: ')
-```
-
-If we can get the team names from elsewhere, in the same format, we could just replace them out of this column.
 
 
 How about getting the column names from a specified row?
@@ -735,8 +722,9 @@ How about getting the column names from a specified row?
 ```R
 #colnames(df) <- as.character(unlist(df[1,]))
 headerrow=3
-print( as.character(unlist(class_df[headerrow,])) )
+print( as.character(unlist(classified_df[headerrow,])) )
 
+#Ignore the rows up to an including the headerrow in the table
 class_df[-(1:headerrow),][1:5,]
  
 ```
@@ -753,6 +741,7 @@ class_df[1:5,]
 Let's also clean the class column of invited cars:
 
 ```R
+#Retain the original class column, including invite, and create a new clean column
 class_df$CLASS = gsub(' INV', '', class_df$CL)
 class_df$INV = endsWith(class_df$CL, ' INV')
 class_df[10:15,]
@@ -779,10 +768,78 @@ fastestLap_row <- which(grepl("FASTESTLAP", allInOne$allInOne))
 fastestLap_row
 ```
 
+```R
+class_df[,'NO']
+```
+
 We can now filter the classification to give just the classified cars:
 
 ```R
-class_df[1:(unclassified_row-1),]
+classified_df <- class_df[1:(unclassified_row-1),]
+classified_df
+```
+
+#### Coping with merged team and driver names
+The team and driver details may be merged into each other in the main classification. We should be able to recover that from other sheets, but it's a real pain here unless we use a heuristic of splitting on camelcase.
+
+```R
+#https://stackoverflow.com/a/43706490/454773
+paste(strsplit('JMH AutomotiveJohn SEALE / Marcus CLUTTON', "(?<=[a-z])(?=[A-Z])", perl = TRUE)[[1]], collapse=' :: ')
+```
+
+There are, however, likely to be exceptions, for example if the latter part of a team name is in uppercase:-(
+
+```R
+paste(strsplit('Team BRITMartyn COMPTON / Warren MCKINLAY', "(?<=[a-z])(?=[A-Z])", perl = TRUE)[[1]], collapse=' :: ')
+```
+
+If we can get the team names from elsewhere, in the same format, we could just replace them out of this column.
+
+Or we can use another heuristic: split if we have two or more uppercase followed by a lowercase.
+
+Or maybe we should instead take a step back and thing just about pattern matching on the string.
+
+VIa @graemefowler, this seems to work for some of the cases I have so far? Rather than try to come up with a genral splitter, parse the string using structure we know is there... Doh!
+
+
+We also need to be able to cope with situations where there is only a single driver.
+
+```R
+#Team XYZJohn SMITH / Jane SMITH
+#TEAM RacersJohn SMITH / Jane SMITH
+#John McMahon RacingJohn SMITH / Jane SMITH
+
+
+print(gsub("^(.+[A-Z-][a-zA-Z]+)([A-Z]\\w+ [A-Z]+( \\/.+)?)", "\\1 :: \\2",
+           "TEAM RacersJohn SMITH / Jane SMITH", perl=TRUE))
+
+print(gsub("^(.+[A-Z-][a-zA-Z]+)([A-Z]\\w+ [A-Z]+( \\/.+)?)", "\\1 :: \\2",
+           "Team XYZJohn SMITH / Jane SMITH", perl=TRUE))
+
+print(gsub("^(.+[A-Z-][a-zA-Z]+)([A-Z]\\w+ [A-Z]+( \\/.+)?)", "\\1 :: \\2",
+           "Team XYZJohn SMITH-JONES / Jane SMITH", perl=TRUE))
+
+
+print(gsub("^(.+[A-Z-][a-zA-Z]+)([A-Z]\\w+ [A-Z]+( \\/.+)?)", "\\1 :: \\2",
+           "Team-xyzJohn SMITH / Jane SMITH", perl=TRUE))
+
+print(gsub("^(.+[A-Z-][a-zA-Z]+)([A-Z]\\w+ [A-Z]+( \\/.+)?)", "\\1 :: \\2",
+           "John McMahon RacingJohn SMITH / Jane SMITH", perl=TRUE))
+
+print(gsub("^(.+[A-Z-][a-zA-Z]+)([A-Z]\\w+ [A-Z]+( \\/.+)?)", "\\1 :: \\2",
+           "Team XYZJohn SMITH", perl=TRUE))
+
+print(gsub("^(.+[A-Z-][a-zA-Z]+)([A-Z]\\w+ [A-Z]+( \\/.+)?)", "\\1 :: \\2",
+           "Team-XYZJohn SMITH", perl=TRUE))
+```
+
+Let's add in the team / driver splitter:
+
+```R
+classified_df['TEAMDRIVERS'] <- classified_df['TEAM / DRIVERS'] %>%
+    apply( 2, function(x) gsub("^(.+[A-Z-][a-zA-Z]+)([A-Z]\\w+ [A-Z]+( \\/.+)?)", "\\1 :: \\2", x))
+
+classified_df %>%  separate('TEAMDRIVERS', into=c('TEAM','DRIVERS'),sep=' :: ') 
 ```
 
 And the unclassified cars:
@@ -792,14 +849,49 @@ unclassified_df <- class_df[(unclassified_row+1):(fastestLap_row-1),]
 unclassified_df
 ```
 
-Maybe simplest to just drop the non-timing data rows and grab driver metadat by JOINing somewhere on `NO`?
+In this case, the teams and drivers are split out. Can we grab the drivers on the off rows?
 
 ```R
-unclassified_df[unclassified_df[,]]
+unclassified_drivers <- unclassified_df[unclassified_df['NO']=='','TEAM / DRIVERS']
+unclassified_drivers
 ```
 
 ```R
-unclassified_df[unclassified_df['POS']!='',]
+unclassified_df <- unclassified_df[unclassified_df['NO']!='',]
+unclassified_df['DRIVERS'] <- unclassified_drivers
+unclassified_df <- unclassified_df %>% rename(TEAM = 'TEAM / DRIVERS')
+unclassified_df
+```
+
+We can also pull out the fastest laps table. This looks to return the fastest in each class, plus any invited entries that are actually fastest in class.
+
+Do this in two steps: get the rows from fastest laps down, then try to figure out which rows to drop at the end.
+
+```R
+fastestLap_df <- class_df[(fastestLap_row+1):nrow(class_df),]
+fastestLap_df
+```
+
+```R
+blank_rows <- which(fastestLap_df[,'TEAM / DRIVERS']=='')
+blank_rows
+```
+
+```R
+fastestLap_df <- fastestLap_df[1:(blank_rows[1]-1),]
+fastestLap_df
+```
+
+```R
+fastestLap_drivers <- fastestLap_df[fastestLap_df['NO']=='','TEAM / DRIVERS']
+fastestLap_drivers
+```
+
+```R
+fastestLap_df <- fastestLap_df[fastestLap_df['NO']!='',]
+fastestLap_df['DRIVERS'] <- fastestLap_drivers
+fastestLap_df <- fastestLap_df %>% rename(TEAM = 'TEAM / DRIVERS')
+fastestLap_df
 ```
 
 #### Lap Analysis Pages
