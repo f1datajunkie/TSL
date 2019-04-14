@@ -182,12 +182,39 @@ t = extract_text("2019/191403cli.pdf", pages = 9, area = list(c(760, 0, 1000, 60
 cat(t)
 ```
 
+```R
+get_footer <- function(PDF, page){
+    t <- extract_text(PDF, pages = page, area = list(c(760, 0, 1000, 800)))
+    t
+}
+get_footer(PDF,16)
+```
+
+```R
+library(lubridate)
+
+get_page_date <- function(PDF, page){
+    get_footer(PDF,page)
+    date(date(parse_date_time(str_split(str_extract(ft,"Printed - ([^\\n]*).*"),' - ')[[1]][2]," H:M A, d B Y")))
+}
+
+get_page_date(PDF,16)
+```
+
 How about the page header?
 
 ```R
 #Page header
 t = extract_text(PDF, pages = 13, area = list(c(0, 0, 120, 600)))
 cat(t)
+```
+
+```R
+get_header <- function(PDF, page){
+    t <- extract_text(PDF, pages = page, area = list(c(0, 0, 120, 600)))
+    strsplit(t, '\n')[[1]]
+}
+get_header(PDF,12)
 ```
 
 Where the header is split over two lines, we can can split the string to access the separate components:
@@ -499,6 +526,10 @@ The clock time for the end of lap 4 = completion time of lap 3 plus leader lap t
 
 
 ```R
+get_header('results/Dunlop Endurance Championship.pdf', 63)
+```
+
+```R
 extract_table_as_df('results/Dunlop Endurance Championship.pdf', pages = 63, header=F)
 ```
 
@@ -700,7 +731,13 @@ p <- ggplot(full_df, aes(NO, laptimeInS))
 p + geom_boxplot() + coord_flip()
 ```
 
+### Classification Extractor
+
 To plot the classes, we need to know the classes. We can get this from the classification.
+
+```R
+get_header('results/Dunlop Endurance Championship.pdf', 62)
+```
 
 ```R
 class_df = extract_tables('results/Dunlop Endurance Championship.pdf', pages = 62, header=F, guess=F, output='data.frame',
@@ -916,7 +953,28 @@ The data provided for each lap is:
 - speed (average speed for the lap);
 - time of day.
 
-The vehicle's three bast lap times are annotated, as are pit laps (that is, inlaps). The outlap will be significantly longer and includes the pit stop and pit lane loss times. Inlap times may be less than the fastest lap time if the time is set near the start of the pit lane.
+The vehicle's three best lap times are annotated, as are pit laps (that is, inlaps). The outlap will be significantly longer and includes the pit stop and pit lane loss times. Inlap times may be less than the fastest lap time if the time is set near the start of the pit lane.
+
+
+To start with, let's get the sheet metadata - the series and session.
+
+```R
+h <- get_header('results/Dunlop Endurance Championship.pdf', 41)
+series <- h[1]
+#session <- strsplit(h[2],' - ')[[1]][1]
+fullsession <- h[2]
+
+session <- unlist(strsplit(h[2],' - '))[1]
+paste(series, fullsession, session, sep=' ... ')
+```
+
+We can also get the page date:
+
+```R
+get_page_date(PDF,16)
+```
+
+Adding series, session and date cols, or a unique *eventsession* ID that refers to those, would allow us to create a single lap analysis table across multiple events, with rows distinguished using event info.
 
 ```R
 extract_tables('results/Dunlop Endurance Championship.pdf', pages = 41, header=F, guess=F, output='data.frame',
@@ -925,7 +983,7 @@ extract_tables('results/Dunlop Endurance Championship.pdf', pages = 41, header=F
 
 First, let's split everything into two columns and try to pull out driver names and the rows they are associated with.
 
-The driver rows start with a `P` for the position.
+The vehicle rows start with a `P` for the position. Get a row number for each team header.
 
 ```R
 lap_analysis_vehicle = extract_tables('results/Dunlop Endurance Championship.pdf', pages = 41, header=F, guess=F, output='data.frame',
@@ -936,8 +994,11 @@ lap_analysis_vehicle = reshape(lap_analysis_vehicle, direction="long", new.row.n
 
 
 vehicle_rows = which(grepl('P[0-9]+',trimws(lap_analysis_vehicle[,'V1'])))
-lap_analysis_vehicle[vehicle_rows,'V1']
+vehicle_rows
+```
 
+```R
+lap_analysis_vehicle[vehicle_rows,'V1']
 ```
 
 ```R
@@ -947,11 +1008,25 @@ teams <- data.frame(lap_analysis_vehicle[vehicle_rows,'V1']) %>% extract(1, c('P
 teams
 ```
 
+We now need to get the cell ranges that apply to each vehicle. This means we also need to find the last row. Can we use the max row?
+
+```R
+vehicle_rows = c(vehicle_rows,nrow(lap_analysis_vehicle))
+vehicle_rows
+```
+
 ```R
 #Generate the pairwise ranges
 #https://stackoverflow.com/a/41206700/454773
 lap_ranges <- rbind(vehicle_rows[-length(vehicle_rows)], vehicle_rows[-1])
+lap_ranges
+```
+
+Note that if we are not on the first page, then the first rows may be "unmarked" as far as the team goes, becuase this information will be carried over from the previous page.
+
+```R
 lap_ranges <- split(lap_ranges, col(lap_ranges))
+lap_ranges
 ```
 
 Now let's split the data into two groups of 6 columns, and try to split the data out by driver.
@@ -975,7 +1050,6 @@ full_lap_analysis <- data.frame()
 #Need to autsplit into groups
 for (lap_range in lap_ranges){
     full_lap_analysis <- rbind(full_lap_analysis, lap_analysis[lap_range[1]:(lap_range[2]-1),] )
-
     }
 
 #Clear blank rows and head row
@@ -1000,46 +1074,166 @@ full_lap_analysis#[1:10,]
 
 ```
 
-We now need to identify
-
-
 Now let's tidy that up and apply it to several pages.
 
-```
-#muliple pages
-pageCount <- 1
+We should be able to just get away with scraping each page separately, then concatenate into a single data frame.
 
-full_df = data.frame()
-
-for(df in dfs){
-    
-    startrow <- which(startsWith(df[,1],'NO'))+1
-    
-    blanks <- which(df[,1]=='')
-    endrow <- min(blanks[blanks>startrow]) -1
-    
-    df <- df %>% slice(startrow:endrow)
-    
-    cols = c('NO','BEHIND','LAPTIME','PIT')
-    names(df) <- make.unique(rep(cols,5))
-    
-    df <- reshape(df, direction="long", new.row.names =1:10000,
-        varying=list(c(1,5,9,13,17), c(2,6,10,14,18),c(3,7,11,15,19),c(4,8,12,16,20)),
-        timevar='Count')
-    
-    df$Lap <- df$Count * pageCount
-    
-    full_df = rbind(full_df, df)
-    
-    
-    pageCount <- pageCount + 1
-}
-
-full_df
+```R
+pages=41:44
 ```
 
 ```R
-#df$OUT = lag(df$PIT,1)
+lap_analysis_vehicle_all=data.frame()
+lap_analysis_vehicles = extract_tables('results/Dunlop Endurance Championship.pdf', pages = pages, header=F, guess=F, output='data.frame',
+                    columns= list(c(300, 600)))
+
+for (lap_analysis_vehicle in lap_analysis_vehicles){
+        lap_analysis_vehicle = reshape(lap_analysis_vehicle, direction="long", new.row.names =1:10000,
+            varying=list(c(1,2)), timevar='Col') 
+        lap_analysis_vehicle_all = rbind(lap_analysis_vehicle_all, lap_analysis_vehicle)
+    }
+lap_analysis_vehicle_all
+
+```
+
+```R
+vehicle_rows = which(grepl('P[0-9]+',trimws(lap_analysis_vehicle_all[,'V1'])))
+teams <- data.frame(lap_analysis_vehicle_all[vehicle_rows,'V1']) %>% extract(1, c('POS','NO','TEAM'), 
+                                                                regex = "(P[0-9]+) ([0-9]+) (.*)")
+teams
+```
+
+```R
+nrow(lap_analysis_vehicle_all)
+```
+
+```R
+vehicle_rows = c(vehicle_rows,nrow(lap_analysis_vehicle_all))
+vehicle_rows
+```
+
+```R
+lap_ranges <- rbind(vehicle_rows[-length(vehicle_rows)], vehicle_rows[-1])
+lap_ranges <- split(lap_ranges, col(lap_ranges))
+lap_ranges
+```
+
+So that works...
+
+Can we now get the more detailed data in place?
+
+```R
+lap_analyses = extract_tables('results/Dunlop Endurance Championship.pdf', pages = pages,
+                          header=F, guess=F, output='data.frame',
+                          columns= list(c(52,98,115,168,210,300,352,396,419,467,508, 600)))
+lap_analysis_all=data.frame()
+lap_analysis_cols = c('LAP','LAP TIME','ANN','DIFF','MPH','TIME OF DAY')
+for (lap_analysis in lap_analyses){
+    names(lap_analysis) <- make.unique(rep(lap_analysis_cols,2))
+    lap_analysis <- reshape(lap_analysis, direction="long", new.row.names =1:10000,
+        varying=list(c(1,7), c(2,8),c(3,9),c(4,10),c(5,11),c(6,12)), timevar='Col')
+    lap_analysis_all = rbind(lap_analysis_all, lap_analysis)
+    }
+lap_analysis_all
+```
+
+```R
+full_lap_analysis <- data.frame()
+for (lap_range in lap_ranges){
+    full_lap_analysis <- rbind(full_lap_analysis, lap_analysis_all[lap_range[1]:(lap_range[2]-1),] )
+    }
+full_lap_analysis
+```
+
+```R
+full_lap_analysis <- full_lap_analysis[!(full_lap_analysis$LAP %in% c("","LAP")) , ]
+full_lap_analysis
+```
+
+```R
+full_lap_analysis <- full_lap_analysis %>%
+                    mutate(POS = str_extract(LAP, "(P[0-9]+)")) %>%
+                    fill(POS)  %>% 
+                    inner_join(teams) %>%
+                    #Drop the Col and id columns
+                    select(-c(id,Col)) %>%
+                    #Drop the position header rows
+                    filter(!startsWith(LAP,'P')) %>%
+                    #Tidy the lap column
+                    mutate(LAP = str_extract(LAP, "([0-9]+) ")) %>%
+                    #Tidy the POS column
+                    mutate(POS = str_extract(POS, "([0-9]+)"))
+full_lap_analysis
+```
+
+```R
+#This is for a multiple pages
+scrape_lap_analysis_pages <- function(PDF,pages){
+
+    ##FULL THING
+    lap_analysis_vehicle_all=data.frame()
+    lap_analysis_vehicles = extract_tables('results/Dunlop Endurance Championship.pdf', pages = pages, header=F, guess=F, output='data.frame',
+                        columns= list(c(300, 600)))
+
+    for (lap_analysis_vehicle in lap_analysis_vehicles){
+            lap_analysis_vehicle = reshape(lap_analysis_vehicle, direction="long", new.row.names =1:10000,
+                varying=list(c(1,2)), timevar='Col') 
+            lap_analysis_vehicle_all = rbind(lap_analysis_vehicle_all, lap_analysis_vehicle)
+        }
+    
+    vehicle_rows = which(grepl('P[0-9]+',trimws(lap_analysis_vehicle_all[,'V1'])))
+    teams <- data.frame(lap_analysis_vehicle_all[vehicle_rows,'V1']) %>% extract(1, c('POS','NO','TEAM'), 
+                                                                regex = "(P[0-9]+) ([0-9]+) (.*)")
+
+    vehicle_rows = c(vehicle_rows,nrow(lap_analysis_vehicle_all))
+    
+    lap_ranges <- rbind(vehicle_rows[-length(vehicle_rows)], vehicle_rows[-1])
+    lap_ranges <- split(lap_ranges, col(lap_ranges))
+
+    lap_analyses = extract_tables(PDF, pages = pages,
+                              header=F, guess=F, output='data.frame',
+                              columns= list(c(52,98,115,168,210,300,352,396,419,467,508, 600)))
+    lap_analysis_all=data.frame()
+    lap_analysis_cols = c('LAP','LAP TIME','ANN','DIFF','MPH','TIME OF DAY')
+    for (lap_analysis in lap_analyses){
+        names(lap_analysis) <- make.unique(rep(lap_analysis_cols,2))
+        lap_analysis <- reshape(lap_analysis, direction="long", new.row.names =1:10000,
+            varying=list(c(1,7), c(2,8),c(3,9),c(4,10),c(5,11),c(6,12)), timevar='Col')
+        lap_analysis_all = rbind(lap_analysis_all, lap_analysis)
+        }
+
+    full_lap_analysis <- data.frame()
+    for (lap_range in lap_ranges){
+        full_lap_analysis <- rbind(full_lap_analysis, lap_analysis_all[lap_range[1]:(lap_range[2]-1),] )
+        }
+
+    #Try to tidy up - could we have done better earlier on?
+    #full_lap_analysis <- full_lap_analysis[!(full_lap_analysis$LAP %in% c("","LAP")) , ]
+    #Get rid of any row that doesn't parse as a lap time
+    #lubridate function to parse time
+    #is.na(hms('a1-a15.476'))
+    #full_lap_analysis <- full_lap_analysis[!is.na(hms(full_lap_analysis[['LAP TIME']])) , ]
+    full_lap_analysis <- full_lap_analysis %>%
+                        mutate(POS = str_extract(LAP, "(P[0-9]+)")) %>%
+                        fill(POS)  %>% 
+                        inner_join(teams) %>%
+                        #Drop the Col and id columns
+                        select(-c(id,Col)) %>%
+                        #Drop the position header rows
+                        filter(!startsWith(LAP,'P')) %>%
+                        #Tidy the lap column
+                        mutate(LAP = str_extract(LAP, "([0-9]+) ")) %>%
+                        #Tidy the POS column
+                        mutate(POS = str_extract(POS, "([0-9]+)"))
+    
+    full_lap_analysis <- full_lap_analysis[!full_lap_analysis[['LAP TIME']] %>% hms(.) %>% is.na(),]
+    full_lap_analysis
+}
+```
+
+```R
+xx = scrape_lap_analysis_pages('results/Dunlop Endurance Championship.pdf',42:53)
+xx
 ```
 
 ## Safety Car Laps
