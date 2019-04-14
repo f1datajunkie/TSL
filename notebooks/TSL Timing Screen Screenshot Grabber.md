@@ -769,7 +769,7 @@ def waitTimeToStart(tts, delay=120):
     tts = (s-n)
     
     #If the time is after the scehduled start time, wait a minute...
-    #Seems we donlt get negative seconds?
+    #Seems we don't get negative seconds?
     if tts.days < 0: 
         return 60
     #If the time is within the presecribed delay period, no need for an extra wait
@@ -791,6 +791,11 @@ period_lap = 95 #This is the time we'll after we record the race as finished bef
 finishedwait=60
 refresh_before_scheduled_start = 120
 
+send_email = False
+sent_email = False
+
+reviever
+send_mail_html(server, sender_email, [receiver_email], subject, text, htmltext, files=[outfile])
 #If we are in a race
 browser = initBrowser(url)
 
@@ -907,6 +912,8 @@ For example, if you have a GMail account:
 
 ```python
 import smtplib, ssl, getpass
+from IPython.display import clear_output
+
 
 port = 465  # For SSL
 
@@ -916,7 +923,7 @@ sender_password =  getpass.getpass()
 # Create a secure SSL context
 context = ssl.create_default_context()
 
-receiver_email = "user@example.com"  # Enter receiver address
+receiver_email = input("Email address for test send: ")#"user@example.com"  # Enter receiver address
 message = """\
 Subject: Test
 
@@ -926,6 +933,19 @@ Test message from code..."""
 with smtplib.SMTP_SSL("smtp.gmail.com", port, context=context) as server:
     server.login(sender_email, sender_password)
     server.sendmail(sender_email, receiver_email, message)
+    
+#Clear the output so we don't share emails in saved notebook
+clear_output()
+```
+
+```python
+receiver_email = input("Email address for test send: ")#"user@example.com"  # Enter receiver address
+with smtplib.SMTP_SSL("smtp.gmail.com", port, context=context) as server:
+    server.login(sender_email, sender_password)
+    server.sendmail(sender_email, receiver_email, message)
+
+#Clear the output so we don't share emails in saved notebook
+clear_output()
 ```
 
 ```python
@@ -989,6 +1009,33 @@ cid = 0 #A unique id count for the image
 htmltext=''''<html><body><h1>Timing screen</h1>\n<div><img src="cid:{cid}"></div>\n</body></html>'''.format(cid=cid)
 ```
 
+Let's go defensive and check we have at least one valid email to send to...
+
+```python
+#https://www.scottbrady91.com/Email-Verification/Python-Email-Verification-Script
+import re
+
+def checkEmails(addressesToVerify):
+    ''' Tests one or more email addresses. Returns list of emails that parse. '''
+    addressesToVerify = addressesToVerify if isinstance(addressesToVerify, list) else [addressesToVerify]
+    
+    regex = '^[_a-z0-9-]+(\.[_a-z0-9-]+)*@[a-z0-9-]+(\.[a-z0-9-]+)*(\.[a-z]{2,4})$'
+
+    validEmailAddresses = []
+    for addressToVerify in addressesToVerify:
+        if re.match( regex, addressToVerify):
+            validEmailAddresses.append(re.match( regex, addressToVerify).group())
+
+    #Return uniques
+    return list(set(validEmailAddresses))
+
+
+#checkEmails(['a.bkexample.com','a@bkexample.com','a@bkexample.com'])
+#We could go further and check it's a valid email
+#eg https://www.scottbrady91.com/Email-Verification/Python-Email-Verification-Script
+#or other validation packages
+```
+
 ```python
 import uuid, datetime
 from email.mime.base import MIMEBase
@@ -1013,6 +1060,13 @@ def add_image(msg, img, iid=0):
         msg.attach(mime)
     
 def send_mail_html(server, send_from, send_to, subject, text, htmltext, files=None):
+    
+    send_to = checkEmails(send_to)
+    
+    if not send_to:
+        print('No valid email addresses to send to.')
+        return
+    
     assert isinstance(send_to, list)
     assert isinstance(files, list)
 
@@ -1040,9 +1094,16 @@ def send_mail_html(server, send_from, send_to, subject, text, htmltext, files=No
 ```
 
 ```python
+#send_mail_html(server, sender_email, [receiver_email], subject, text, htmltext, files=[outfile])
+```
+
+```python
+#This will guard that we have a receiver_email variable
+receiver_email = [] if  not 'receiver_email' in locals() else locals()['receiver_email']
+
 server = smtplib.SMTP_SSL("smtp.gmail.com", port, context=context)
 server.login(sender_email, sender_password)
-send_mail_html(server, sender_email, [receiver_email], subject, text, htmltext, files=[outfile])
+send_mail_html(server, sender_email, receiver_email, subject, text, htmltext, files=[outfile])
 ```
 
 ## TO DO
