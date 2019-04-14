@@ -28,11 +28,15 @@ A simple script to grab a screenshot of a TSL Timing screen.
 #Alternatively, we can install as part of the container build process
 ```
 
+```python
+%matplotlib inline
+```
+
 ## Set up a browser instance
 
 We can create a headless browser (one that doesn't need to open in a window that we can see) that we can load pages into and grab screenshots from. As we are running an actual browser, if the web page is being updated via a websocket connection, our remotely launched browser will be being updated with the socket connection data.
 
-So once we lauch our browser onto a timing screen, we can just keep referencing the browser to get the latest view of the page...
+So once we launch our browser onto a timing screen, we can just keep referencing the browser to get the latest view of the page...
 
 ```python
 from selenium import webdriver
@@ -255,7 +259,7 @@ def getInfo(browser):
 We can create a simple function to use *selenium* to grab png screenshots of a particular tab on the timing screen.
 
 ```python
-def setPageTab(browser, tabId='Classification', ofn=None, preview=True):
+def setPageTab(browser, tabId='Classification', ofn=None, preview=True, link=True):
     ''' Simple function to view a particular tab within a TSL timing screen. '''
     #ofn is output filename
     element = browser.find_element_by_id(tabId)
@@ -264,18 +268,21 @@ def setPageTab(browser, tabId='Classification', ofn=None, preview=True):
 
     ofn = ofn if ofn is not None else '{}_{}.png'.format(outfile.replace('.png',''),tabId)
 
-    if preview:
+    if preview or link:
         #Save the page
         browser.save_screenshot( ofn )
         print('screenshot saved to {}'.format(ofn))
-        display(Image(ofn))
+        
+        if preview:
+            display(Image(ofn))
 
-        return ofn
+        if link:
+            return ofn
 ```
 
 ```python
 #url = 'https://livetiming.tsl-timing.com/191209'
-setPageTab(browser,'Classification')
+setPageTab(browser,'Classification', preview=False, link=True)
 ```
 
 We could create a meaningful filename from the series and session metadata. For example:
@@ -488,7 +495,7 @@ def getTime(ts, ms=False):
     elif len(t)==2:
         tm=60*int(t[0])+float(t[1])
     else:
-        tm=float(t[0])
+        tm=float(pd.to_numeric(t[0], errors='coerce'))
     if ms:
         #We can't cast a NaN as an int
         return float(1000*formatTime(tm))
@@ -780,6 +787,12 @@ def waitTimeToStart(tts, delay=120):
 ```
 
 ```python
+def emailReport(info):
+    '''Holding pattern - defined below...'''
+    pass
+```
+
+```python
 import time
 
 #Start to build up the logic
@@ -791,20 +804,22 @@ period_lap = 95 #This is the time we'll after we record the race as finished bef
 finishedwait=60
 refresh_before_scheduled_start = 120
 
-send_email = False
-sent_email = False
+send_email = False #Do we want to send email
+sent_email = False #Have we sent an email for this race
 
-reviever
-send_mail_html(server, sender_email, [receiver_email], subject, text, htmltext, files=[outfile])
 #If we are in a race
 browser = initBrowser(url)
 
 showpreview=True
 while True:
     
+    sent_email = False
+    
     #Reload the browser after each race
     browser = initBrowser(url)
+    info =  getInfo(browser)
     
+    previewed = showpreview
     setPageTab(browser, 'Classification', preview=showpreview)
 
     flag = text_value_from_xpath(browser, flag_path )
@@ -813,12 +828,11 @@ while True:
         time.sleep(finishedwait)
         showpreview=False
         continue
-    showpreview=True
     
     #Start doing setup for a particular race here
     #Need to check we have a valid table name
     #If not, do a delay and then continue back to repeat the loop
-    _table= getInfo(browser)['tablename']
+    _table = getInfo(browser)['tablename']
     if not _table or _table=='':
         print('Nothing seems to be on the timing screen...Wait a couple of minutes...')
         wait(120)
@@ -833,7 +847,15 @@ while True:
         waitfor = waitTimeToStart(flag.replace('Scheduled Start','').split()[1],refresh_before_scheduled_start) 
         print('Race start {}; now {} so sleeping for {}s'.format(flag,datetime.now(),waitfor))
         time.sleep( waitfor )
+        showpreview=False
         continue
+        
+    #Try to limit how often we display the screen
+    #If we showed it on the way in, no need to show it now.
+    #If we didn't show it on the way in, preview it here.
+    showpreview=True
+    if not previewed:
+        setPageTab(browser, 'Classification', preview=showpreview)
     
     print("Creating table {} if it doesn't already exist".format(_table))
     c.executescript(classification_table.format(_table=_table))
@@ -870,7 +892,28 @@ while True:
                 timingScreenToDB(browser, DB, _table)
                 #keep refreshing
                 browser = initBrowser(url)
-                setPageTab(browser, 'Classification', preview=False)
+                final_screen = setPageTab(browser,'Classification', preview=False, link=True)
+                #TO DO - a lot of the following is dependent on things later in the notebook...
+                if send_email and not sent_email:
+                    #server = smtplib.SMTP_SSL("smtp.gmail.com", port, context=context)
+                    #server.login(sender_email, sender_password)
+
+                    #send_to = [] if  not 'send_to' in locals() else locals()['send_to']
+                    #info =  getInfo(browser)
+                    #send_from = sender_email
+                    #subject = 'Autogenerated bits for {} - {}'.format(info['series'], info['session'])
+                    #text = "Some automatically generated bits from {} - {}. Check the attachments...".format(info['series'], info['session'])
+                    #outfiles = [final_screen, get_best_csv(_table),get_laps_csv(_table), get_boxplot(_table)]
+                    #try:
+                    #    print('mailing...')
+                    #    send_mail(server, send_from, send_to, subject, text, files=outfiles)
+                    #except:
+                    #    print('mail send failed')
+                    #html email needs work?
+                    #send_mail_html(server, sender_email, receiver_email,
+                    #               subject, text, htmltext, files=[final_screen])
+                    emailReport(info)
+                    sent_email = True
             print('Session should have completely finished...')
             awaiting_result = False
             #Also grab final classification table as a complete, separate thing
@@ -894,12 +937,100 @@ browser.save_screenshot( fn )
 ```
 
 ```python
-sql = 'SELECT No, Name, Cl, MIN(Best) FROM {} WHERE Best IS NOT NULL GROUP BY No ORDER BY Cl, MIN(Best)'.format(_table)
+def emailReport(info):
+    server = smtplib.SMTP_SSL("smtp.gmail.com", port, context=context)
+    server.login(sender_email, sender_password)
+
+    send_to = [] if  not 'send_to' in locals() else locals()['send_to']
+
+    subject = 'Autogenerated bits for {} - {}'.format(info['series'], info['session'])
+    text = "Some automatically generated bits from {} - {}. Check the attachments...".format(info['series'], info['session'])
+    outfiles = [final_screen, get_best_csv(_table),get_laps_csv(_table), get_boxplot(_table)]
+    print('mailing...')
+    
+    send_mail(server, send_from, send_to, subject, text, files=outfiles)
+    
+    #print('failed...')
+    #html email needs work?
+    #send_mail_html(server, sender_email, receiver_email,
+    #               subject, text, htmltext, files=[final_screen])
+
+emailReport(info)
+```
+
+```python
+send_from
+```
+
+```python
+def get_best_csv(_table):
+    sql = 'SELECT No, Name, Cl, MIN(Best) FROM {} WHERE Best IS NOT NULL GROUP BY No ORDER BY Cl, MIN(Best)'.format(_table)
+    outdf = pd.read_sql_query(sql, conn)
+    
+    #TO DO - is this in the table anyway?
+    outdf['BestInS']=outdf['MIN(Best)'].apply(getTime)
+    
+    fn='{}_best.csv'.format(_table)
+    outdf.to_csv(fn,index=False)
+    return fn
+
+fn = get_best_csv(_table)
+!head {fn}
+```
+
+```python
+sql = 'SELECT * FROM {} LIMIT 2'.format(_table)
 pd.read_sql_query(sql, conn)
 ```
 
 ```python
+def get_laps_df(_table):
+    sql = 'SELECT No, Name, Cl, Laps, Last FROM {} ORDER BY No'.format(_table)
+    outdf = pd.read_sql_query(sql, conn)
+    
+    #TO DO - is this in the table anyway?
+    outdf['LastInS']=outdf['Last'].apply(getTime)
+    
+    return outdf
 
+def get_laps_csv(_table):
+    outdf = get_laps_df(_table)
+    fn = '{}_laps.csv'.format(_table)
+    outdf.to_csv(fn,index=False)
+    return fn
+
+fn = get_laps_csv(_table)
+!head {fn}
+```
+
+```python
+outdf
+```
+
+```python
+from IPython.display import clear_output
+
+def get_boxplot(_table, fn=None):
+    outdf = get_laps_df(_table)
+    p = outdf[['No','LastInS']].boxplot(by='No')
+        
+    fig = p.get_figure()
+    fn = '{}.png'.format(_table) if fn is None else fn
+
+    fig.savefig(fn)
+    return fn
+
+#matplotlib will autodisplay the image
+fn = get_boxplot(_table)
+
+#Display from file
+Image(fn)
+```
+
+```python
+#!pip3 install rpy2
+#%load_ext rpy2.ipython
+#COuld we integrae R code in the notebook for plotting?
 ```
 
 # Emailing the screenshot
@@ -915,13 +1046,11 @@ import smtplib, ssl, getpass
 from IPython.display import clear_output
 
 
-port = 465  # For SSL
 
-sender_email = input("Type your GMail address and press enter: ")
+
+sender_email = input("Type your Email address and press enter: ")
 sender_password =  getpass.getpass()
 
-# Create a secure SSL context
-context = ssl.create_default_context()
 
 receiver_email = input("Email address for test send: ")#"user@example.com"  # Enter receiver address
 message = """\
@@ -930,7 +1059,12 @@ Subject: Test
 Test message from code..."""
 
 
-with smtplib.SMTP_SSL("smtp.gmail.com", port, context=context) as server:
+smtp_server="smtp.gmail.com"
+port = 465  # For SSL
+# Create a secure SSL context
+context = ssl.create_default_context()
+
+with smtplib.SMTP_SSL(smtp_server, port, context=context) as server:
     server.login(sender_email, sender_password)
     server.sendmail(sender_email, receiver_email, message)
     
@@ -946,6 +1080,18 @@ with smtplib.SMTP_SSL("smtp.gmail.com", port, context=context) as server:
 
 #Clear the output so we don't share emails in saved notebook
 clear_output()
+```
+
+```python
+def getMailBlurb(browser, subject=None, text=None):
+    subject = ''
+    
+    text="""Here's some autograbbed data from the end of the race...
+    
+    It's all automated.
+    
+    There may be attachments..
+    """
 ```
 
 ```python
@@ -955,58 +1101,6 @@ Over several
 
 lines"""
 
-```
-
-```python
-#https://stackoverflow.com/a/3363254/454773
-from os.path import basename
-from email.mime.application import MIMEApplication
-from email.mime.multipart import MIMEMultipart
-from email.mime.text import MIMEText
-from email.utils import COMMASPACE, formatdate
-
-def send_mail(server, send_from, send_to, subject, text, files=None):
-    assert isinstance(send_to, list)
-    assert isinstance(files, list)
-
-    msg = MIMEMultipart()
-    msg['From'] = send_from
-    msg['To'] = COMMASPACE.join(send_to)
-    msg['Date'] = formatdate(localtime=True)
-    msg['Subject'] = subject
-
-    msg.attach(MIMEText(text))
-
-    for f in files or []:
-        with open(f, "rb") as fo:
-            part = MIMEApplication(
-                fo.read(),
-                Name=basename(f)
-            )
-        # After the file is closed
-        part['Content-Disposition'] = 'attachment; filename="%s"' % basename(f)
-        msg.attach(part)
-
-
-    #smtp = smtplib.SMTP(server)
-    smtp = server
-    smtp.sendmail(send_from, send_to, msg.as_string())
-    smtp.close()
-
-
-    
-server = smtplib.SMTP_SSL("smtp.gmail.com", port, context=context)
-server.login(sender_email, sender_password)
-send_mail(server, sender_email, [receiver_email], subject, text, files=[outfile])
-```
-
-Sending with image inline as HTML email:
-
-```python
-cid = 0 #A unique id count for the image
-
-#We'd probably need to rething this for multiple images...
-htmltext=''''<html><body><h1>Timing screen</h1>\n<div><img src="cid:{cid}"></div>\n</body></html>'''.format(cid=cid)
 ```
 
 Let's go defensive and check we have at least one valid email to send to...
@@ -1037,13 +1131,73 @@ def checkEmails(addressesToVerify):
 ```
 
 ```python
-import uuid, datetime
+#https://stackoverflow.com/a/3363254/454773
+from os.path import basename
+from email.mime.application import MIMEApplication
+from email.mime.multipart import MIMEMultipart
+from email.mime.text import MIMEText
+from email.utils import COMMASPACE, formatdate
+
+def send_mail(server, send_from, send_to, subject, text, files=None):
+    if not send_from:
+        print('No sender?')
+        return
+    
+    send_to = checkEmails(send_to)
+        
+    assert isinstance(send_to, list)
+    assert isinstance(files, list)
+
+    msg = MIMEMultipart()
+    msg['From'] = send_from
+    msg['To'] = COMMASPACE.join(send_to)
+    msg['Date'] = formatdate(localtime=True)
+    msg['Subject'] = subject
+
+    msg.attach(MIMEText(text))
+
+    for f in files or []:
+        with open(f, "rb") as fo:
+            part = MIMEApplication(
+                fo.read(),
+                Name=basename(f)
+            )
+        # After the file is closed
+        part['Content-Disposition'] = 'attachment; filename="%s"' % basename(f)
+        print('attach part {}'.format(part['Content-Disposition']))
+        msg.attach(part)
+
+
+
+    #smtp = smtplib.SMTP(server)
+    smtp = server
+    smtp.sendmail(send_from, send_to, msg.as_string())
+    smtp.close()
+
+
+    
+#server = smtplib.SMTP_SSL("smtp.gmail.com", port, context=context)
+#server.login(sender_email, sender_password)
+#send_mail(server, sender_email, [receiver_email], subject, text, files=[outfile])
+```
+
+Sending with image inline as HTML email:
+
+```python
+cid = 0 #A unique id count for the image
+
+#We'd probably need to rethink this for multiple images...
+htmltext=''''<html><body><h1>Timing screen</h1>\n<div><img src="cid:{cid}"></div>\n</body></html>'''.format(cid=cid)
+```
+
+```python
+import uuid
 from email.mime.base import MIMEBase
 from email import encoders
 
 #ish via https://www.code-learner.com/python-send-html-image-and-attachment-email-example/
 def add_image(msg, img, iid=0):
-    uniqueId = '{}-{}-{}'.format(img.split('/')[-1], datetime.datetime.now().strftime('%Y%m%d%H%M%S'), uuid.uuid4())
+    uniqueId = '{}-{}-{}'.format(img.split('/')[-1], datetime.now().strftime('%Y%m%d%H%M%S'), uuid.uuid4())
     
     with open(outfile, 'rb') as f:
         # set attachment mime and file name, the image type is png
@@ -1060,6 +1214,10 @@ def add_image(msg, img, iid=0):
         msg.attach(mime)
     
 def send_mail_html(server, send_from, send_to, subject, text, htmltext, files=None):
+    
+    if not send_from:
+        print('No sender?')
+        return
     
     send_to = checkEmails(send_to)
     
@@ -1082,6 +1240,9 @@ def send_mail_html(server, send_from, send_to, subject, text, htmltext, files=No
     for f in files or []:
         add_image(msg, f, fid)
         fid += 1
+        
+    #It would make sense to add the images somehow into the htmltext
+    #Maybe htmltext needs templating?
     msg.attach(MIMEText(htmltext, 'html', 'utf-8'))
 
 
@@ -1094,7 +1255,7 @@ def send_mail_html(server, send_from, send_to, subject, text, htmltext, files=No
 ```
 
 ```python
-#send_mail_html(server, sender_email, [receiver_email], subject, text, htmltext, files=[outfile])
+
 ```
 
 ```python
@@ -1104,6 +1265,20 @@ receiver_email = [] if  not 'receiver_email' in locals() else locals()['receiver
 server = smtplib.SMTP_SSL("smtp.gmail.com", port, context=context)
 server.login(sender_email, sender_password)
 send_mail_html(server, sender_email, receiver_email, subject, text, htmltext, files=[outfile])
+```
+
+```python
+smtp_server="mail.ouseful.org"
+port = 465
+context = ssl.create_default_context()
+
+server = smtplib.SMTP_SSL(smtp_server, port, context=context)
+server.login(sender_email, sender_password)
+send_mail(server, sender_email, receiver_email, subject, text, files=[outfile])
+```
+
+```python
+sender_email, receiver_email
 ```
 
 ## TO DO
