@@ -12,12 +12,16 @@ jupyter:
     name: python3
 ---
 
-# TSL Timing Screen Screenshot Grabber
+# TSL Timing Screen Screenshot and Data Grabber
 
 
-A simple script to grab a screenshot of a TSL Timing screen.
+This originally started out as a simple script to grab a screenshot of a TSL Timing screen. IT then got a little bit more complicated as I added in a routine that tried to email the screenshot to one or more recipients, and then way more complicated as I started to actually scrape data from the timing screen on the one hand, and ustomate the collection of scrapes, grabbing of screenshots, and mailing of all sorts of things on the other.
 
-*Note that the recipe is easily generalised to grab arbitrary webpages.*
+The plan now is to turn this into a proper development narrative to try to recreate, in idealised form, how the various puzzle pieces were identified, solved and pieced together...
+
+...as well as tidying up the code, making a simple CLI for it, and packaging it so that it can be easily deployed to collect data whenever, as wheresoever, it's required.
+
+*Note that the original recipe is easily generalised to grab arbitrary webpages.*
 
 ```python
 #Inspired by: https://www.kaggle.com/dierickx3/kaggle-web-scraping-via-headless-firefox-selenium
@@ -26,6 +30,11 @@ A simple script to grab a screenshot of a TSL Timing screen.
 #geckodriver, geckobin = gdd.download_and_install("v0.23.0")
 
 #Alternatively, we can install as part of the container build process
+```
+
+```python
+%load_ext autoreload
+%autoreload 2
 ```
 
 ```python
@@ -56,7 +65,7 @@ Set the URL of the page you want to grab the screenshot for:
 ```python
 url = "https://livetiming.tsl-timing.com/191231"
 url = 'https://livetiming.tsl-timing.com/191209'
-url='https://livetiming.tsl-timing.com/191431'#brscc april 6
+url = 'https://livetiming.tsl-timing.com/191431'#brscc april 6
 #url='https://livetiming.tsl-timing.com/191403' #btcc april 6
 url='https://livetiming.tsl-timing.com/191521' #croft barc april 13
 ```
@@ -113,8 +122,8 @@ Image(outfile)
 ```python
 from selenium.common.exceptions import TimeoutException
 
-#This will return something if it loads within the specified maxwait
-def initBrowser(url, maxwait=10):
+#This will return something if it loads within the specified maxwait / timeout
+def initBrowser(url, maxwait=10, maxtries=3):
     ''' Launch a new browser and '''
     browser = webdriver.Firefox(options=options)
     browser.get(url)
@@ -123,6 +132,11 @@ def initBrowser(url, maxwait=10):
         element = WebDriverWait(browser, maxwait).until( EC.invisibility_of_element_located((By.ID, undesiredId)))
     except TimeoutException as e:
         browser.close()
+        maxtries = maxtries-1
+        if maxtries:
+            #Try agan with a longer wait
+            return initBrowser(url, maxwait*1.5, maxtries)
+        
         return None
 
     return browser
@@ -143,7 +157,7 @@ Image(outfile)
 - Classification: current ranking
 - Tracking: track map
 - Weather:
-- Statistics: fasest laps etc
+- Statistics: fastest laps etc
 
 
 We can also grab other tabs...
@@ -379,17 +393,48 @@ CREATE TABLE IF NOT EXISTS  "{_table}" (
   PRIMARY KEY (No, Laps) ON CONFLICT IGNORE
 );
 '''
-
 #PK WITH LAST, OR TIMEGAP??? Or just go with Number/Lap PK the first time we get that combination
 #dan then ignore any updates to it?
 #Rather that upsert, just do an insert, so we only get new Number/Laps combinations?
+
+fastest_laps_table = '''
+CREATE TABLE IF NOT EXISTS  "{_table}" (
+    "NO" INTEGER,
+    "NAME" TEXT,
+    "TIME" TEXT,
+    `TIME OF DAY` TEXT,
+    "LAP" INTEGER,
+    `AVG. SPEED (MPH)` FLOAT,
+    "VEHICLE" TEXT
+);
+'''
+
+flags_table = '''
+CREATE TABLE IF NOT EXISTS  "{_table}" (
+    "COLOUR" TEXT,
+    `TOTAL TIME` TEXT,
+    `TOTAL LAPS` INTEGER,
+    "COUNT" INTEGER
+);
+'''
+
+leaderhistory_table = '''
+CREATE TABLE IF NOT EXISTS  "{_table}" (
+    "NO" INTEGER,
+    "NAME" TEXT,
+    `FROM LAP` TEXT,
+    `LAPS LED` INTEGER,
+    `DISTANCE (MILES)` FLOAT,
+    "VEHICLE" TEXT
+);
+'''
 ```
 
 ```python
 import sqlite3
 from sqlite_utils import Database
 
-dbname='new_testlive.db'
+dbname='very_new_testlive.db'
 
 #!rm $dbname
 conn = sqlite3.connect(dbname, timeout=10)
@@ -415,11 +460,15 @@ My original method used upserts to prevent collisions, but that's wrong, I think
 url = 'https://livetiming.tsl-timing.com/191521'
 browser = webdriver.Firefox(options=options)
 browser.get(url)
+
+#We need a delay after this or we may break the following by trying to look in the page for an element
+#before it';s had time to properly load and render
 ```
 
 ```python
 #should perhap have a wait here to just make sure evrything is loaded...
 #Or perhaps better, a guard at end of previous cell
+#
 setPageTab(browser, 'Classification')
 ```
 
@@ -544,6 +593,7 @@ Note that we might also want to think about defining the database columns more f
 We can also grab data from tabs other than the *Classification* tab:
 
 ```python
+browser = initBrowser(url)
 setPageTab(browser, 'Statistics')
 ```
 
@@ -599,8 +649,32 @@ pd.read_html( '<table>{}</table>'.format(el.get_attribute('innerHTML')))[0].drop
 Create a function to grab statistcs tab data.
 
 ```python
-def statisticsScreenToDB(browser, DB, _table='test_stats'):
-    pass
+#TO DO
+def statisticsData(browser):
+    
+    setPageTab(browser, 'Statistics')
+    
+    #flags
+    xpath = '//*[@id="StatsTableContainer"]/div[3]/div[1]/table[1]'
+    el = browser.find_element_by_xpath(xpath)
+    df_flags = pd.read_html( '<table>{}</table>'.format(el.get_attribute('innerHTML')))[0].dropna(axis=1,how='all')
+    
+    #fastest laps
+    fastlap_path ='//*[@id="fastestLapTable"]'
+    el = browser.find_element_by_xpath(fastlap_path)
+    df_fastest = pd.read_html( '<table>{}</table>'.format(el.get_attribute('innerHTML')))[0].dropna(axis=1,how='all')
+    
+    #leader history
+    leaderHistory_path = '//*[@id="leaderHistory"]/div/table'
+    el = browser.find_element_by_xpath(leaderHistory_path)
+    df_leaderhistory = pd.read_html( '<table>{}</table>'.format(el.get_attribute('innerHTML')))[0].dropna(axis=1,how='all')
+
+    return df_flags, df_fastest, df_leaderhistory
+
+```
+
+```python
+statisticsData(browser)
 ```
 
 ```python
@@ -654,7 +728,6 @@ Set up the database:
 
 ```python
 def initDb(dbname='test.db'):
-    dbname='new_testlive2.db'
     
     #TO DO: change to py fn
     #!rm $dbname
@@ -663,18 +736,22 @@ def initDb(dbname='test.db'):
 
     #Setup database tables
     c = conn.cursor()
-    c.executescript(classification_table)
+    #c.executescript(classification_table)
 
 
     DB = Database(conn)
-    _table = 'tsl_timing_classification'
-    
-    return DBconn
+    #_table = 'tsl_timing_classification'
+    #
+    return c, DB
 ```
 
 ```python
 def timingScreenToDB(browser, DB, _table='testTable'):#, period=15):
 
+    #check we're on the right tab
+    setPageTab(browser, 'Classification', preview=False)
+    
+    
     xpath = '//*[@id="ResultsTableContainer"]'
 
     #Grab the timing screen
@@ -690,8 +767,11 @@ def timingScreenToDB(browser, DB, _table='testTable'):#, period=15):
     df['icons'] = getPosIcon(browser)['icons']
     
     #Add time in seconds for best and last
-    df['LastInS']=df['Last'].apply(getTime)
-    df['BestInS']=df['Best'].apply(getTime)
+    #Getting a key not found error from a fresh start for some reason, so guard against that
+    if 'Last' in df:
+        df['LastInS']=df['Last'].apply(getTime)
+    if 'Best' in df:
+        df['BestInS']=df['Best'].apply(getTime)
     
     #Upsert the date
     #DB[_table].upsert_all(df.to_dict(orient='records'))
@@ -712,6 +792,59 @@ def timingScreenToDB(browser, DB, _table='testTable'):#, period=15):
 The timing screen goes into a blank state when waiting for a new race. We may need to refresh it every so often when waiting for a new race to start. Do this with: `browser.refresh()`
 
 Note that if we do this we need to set a wait for the page to load before we try to work on it.
+
+```python
+#Immortalise statistics in DB
+
+## TO DO - BROKEN - I think sqlite_utils is messing up on colnames again
+# A workaround would to be have a column name cleaner and redefine the table definitions
+
+def initStatsDBTables(c, _table):
+    c.executescript(fastest_laps_table.format(_table=_table))
+    c.executescript(flags_table.format(_table=_table))
+    c.executescript(leaderhistory_table.format(_table=_table))
+
+
+def statisticsScreenToDB(browser, DB, _table='test_stats'):
+    df_flags, df_fastest, df_leaderhistory = statisticsData(browser)
+    
+    DB['{}_flags'.format(_table)].insert_all(df_flags.to_dict(orient='records'))
+    DB['{}_fastest'.format(_table)].insert_all(df_fastest.to_dict(orient='records'))
+    DB['{}__leader_history'.format(_table)].insert_all(df_leaderhistory.to_dict(orient='records'))
+
+```
+
+```python
+browser=initBrowser(url)
+
+df_flags, df_fastest, df_leaderhistory = statisticsData(browser)
+df_flags, df_fastest, df_leaderhistory
+```
+
+```python
+DB['{}_flags'.format(_table)].insert_all(df_flags.to_dict(orient='records'))
+```
+
+```python
+statisticsScreenToDB(browser, DB, _table)
+```
+
+```python
+#initStatsDBTables(c, _table)
+```
+
+```python
+df_fastest.to_dict(orient='records')
+```
+
+```python
+df_flags, df_fastest, df_leaderhistory = statisticsData(browser)
+df_flags.to_dict(orient='records')
+```
+
+```python
+statisticsScreenToDB(browser, DB)
+```
 
 ```python
 url_brscc = 'https://livetiming.tsl-timing.com/191431'
@@ -793,6 +926,10 @@ def emailReport(info):
 ```
 
 ```python
+c, DB = initDb('sun14test.db')
+```
+
+```python
 import time
 
 #Start to build up the logic
@@ -810,8 +947,13 @@ sent_email = False #Have we sent an email for this race
 #If we are in a race
 browser = initBrowser(url)
 
+
 showpreview=True
 while True:
+    
+    prevSessionTime = None #heurstic to try to spot if we are stuck
+    #If we are stuck, reload the browser
+    shoved=False #part of the keep it running heuristic
     
     sent_email = False
     
@@ -819,23 +961,24 @@ while True:
     browser = initBrowser(url)
     info =  getInfo(browser)
     
-    previewed = showpreview
-    setPageTab(browser, 'Classification', preview=showpreview)
-
-    flag = text_value_from_xpath(browser, flag_path )
-    if flag.upper()=='FINISHED':
-        print('Still on screen from previous race')
-        time.sleep(finishedwait)
-        showpreview=False
-        continue
-    
-    #Start doing setup for a particular race here
     #Need to check we have a valid table name
     #If not, do a delay and then continue back to repeat the loop
     _table = getInfo(browser)['tablename']
     if not _table or _table=='':
         print('Nothing seems to be on the timing screen...Wait a couple of minutes...')
         wait(120)
+        continue
+        
+    previewed = showpreview
+    setPageTab(browser, 'Classification', preview=showpreview)
+    
+    #Start doing setup for a particular race here
+
+    flag = text_value_from_xpath(browser, flag_path )
+    if flag.upper()=='FINISHED':
+        print('Still on screen from previous race')
+        time.sleep(finishedwait)
+        showpreview=False
         continue
     
     #If the scheduled start is some time away, wait until a few mins before the scheduled start
@@ -860,7 +1003,6 @@ while True:
     print("Creating table {} if it doesn't already exist".format(_table))
     c.executescript(classification_table.format(_table=_table))
 
-
     race_on = True if flag!='Finished' else False
     
     awaiting_result=True
@@ -881,15 +1023,26 @@ while True:
 
         sessionTime = text_value_from_xpath(browser, sessionTime_path )
         print(flag, sessionTime, end='')
+        
+        
+        #Hack for now
+        statsdone=False    
         while flag.upper()=='FINISHED':
+            #TO DO - Grab statistics tables and save to DB
             #We need to wait and do a final check - wait for time approx one lap
             #Get worst best lap time and use that? 
             time.sleep(period_lap)
-            #Then need to get guaranteed final times
+            #Then need to get guaranteed final times and stats - but make sure screen is still there..
             #Need to guard that we do not do this if we have moved on to another race...
+            #Note that this field may take some time to populate after a browser refresh?
             flag = text_value_from_xpath(browser, flag_path )
+
             if flag.upper()=='FINISHED':
                 timingScreenToDB(browser, DB, _table)
+                if not statsdone:
+                    initStatsDBTables(c, _table)
+                    statisticsScreenToDB(browser, DB, _table)
+                    statsdone=True
                 #keep refreshing
                 browser = initBrowser(url)
                 final_screen = setPageTab(browser,'Classification', preview=False, link=True)
@@ -921,10 +1074,20 @@ while True:
             #timingScreenToDB(browser, DB, '{}_final_timing_screen'.format(_table))
             #setPageTab(browser, 'Statistics')
             #statisticsScreenToDB(browser, DB, '{}_final_statistics'.format(_table))
-        else:
-            #carry on waiting
-            time.sleep(period)
 
+        #carry on waiting
+        time.sleep(period)
+
+        #Sometimes things seem to get stuck on the timing screen, so give it a shove
+        sessionTime = text_value_from_xpath(browser, sessionTime_path )
+        if prevSessionTime and sessionTime==prevSessionTime:
+            if shoved:
+                #Let's try and go back to the start...
+                awaiting_result = False
+            print('shove..')
+            prevSessionTime = sessionTime
+            shoved = True
+            browser = initBrowser(url)
 
 fn = '{}_{}.png'.format(series, session )
 
@@ -1046,7 +1209,9 @@ import smtplib, ssl, getpass
 from IPython.display import clear_output
 
 
+```
 
+```python
 
 sender_email = input("Type your Email address and press enter: ")
 sender_password =  getpass.getpass()
@@ -1138,7 +1303,7 @@ from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 from email.utils import COMMASPACE, formatdate
 
-def send_mail(server, send_from, send_to, subject, text, files=None):
+def send_mail(server, send_from, send_to, subject='Test subject email', text='Test message text', files=None):
     if not send_from:
         print('No sender?')
         return
@@ -1146,9 +1311,10 @@ def send_mail(server, send_from, send_to, subject, text, files=None):
     send_to = checkEmails(send_to)
         
     assert isinstance(send_to, list)
-    assert isinstance(files, list)
+    #assert isinstance(files, list)
 
     msg = MIMEMultipart()
+    #The from can be different to the sender, which was used to login to mailgun
     msg['From'] = send_from
     msg['To'] = COMMASPACE.join(send_to)
     msg['Date'] = formatdate(localtime=True)
@@ -1229,6 +1395,7 @@ def send_mail_html(server, send_from, send_to, subject, text, htmltext, files=No
     assert isinstance(files, list)
 
     msg = MIMEMultipart('alternative')
+    #the from can be different to the sender, which was used to login to mailgun
     msg['From'] = send_from
     msg['To'] = COMMASPACE.join(send_to)
     msg['Date'] = formatdate(localtime=True)
@@ -1255,7 +1422,7 @@ def send_mail_html(server, send_from, send_to, subject, text, htmltext, files=No
 ```
 
 ```python
-
+#mailgun setup
 ```
 
 ```python
@@ -1268,17 +1435,24 @@ send_mail_html(server, sender_email, receiver_email, subject, text, htmltext, fi
 ```
 
 ```python
-smtp_server="mail.ouseful.org"
-port = 465
-context = ssl.create_default_context()
+#Not ssl?
 
-server = smtplib.SMTP_SSL(smtp_server, port, context=context)
+#use tls
+server = smtplib.SMTP(smtp_server, port)
+# identify ourselves to smtp gmail client
+server.ehlo()
+# secure our email with tls encryption
+server.starttls()
+# re-identify ourselves as an encrypted connection
+server.ehlo()
+
 server.login(sender_email, sender_password)
-send_mail(server, sender_email, receiver_email, subject, text, files=[outfile])
-```
+send_mail(server, sender_email, receiver_email, subject='new test')
 
-```python
-sender_email, receiver_email
+#server.quit()
+
+
+
 ```
 
 ## TO DO
