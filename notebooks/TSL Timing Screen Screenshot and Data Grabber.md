@@ -277,6 +277,10 @@ We can create a simple function to use *selenium* to grab png screenshots of a p
 ```python
 def setPageTab(browser, tabId='Classification', ofn=None, preview=True, link=True):
     ''' Simple function to view a particular tab within a TSL timing screen. '''
+    
+    #Check the page has loaded
+    element = WebDriverWait(browser, 10).until( EC.invisibility_of_element_located((By.ID, undesiredId)))
+    
     #ofn is output filename
     element = browser.find_element_by_id(tabId)
     element.click()
