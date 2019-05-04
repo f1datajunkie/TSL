@@ -246,9 +246,10 @@ sessionTime
 ```
 
 ```python
+import string
 def tableNameCleaner(t):
     if t:
-        t = t.replace('/','').replace(' - ','_').replace('-','_').replace(' ','_').upper()
+        t = t.replace(' - ','_').replace('-','_').replace(' ','_').translate(str.maketrans('','',string.punctuation.replace('_',''))).upper()
         t = t.replace('QUALIFYING','Q').replace('RACE','R').replace('CHAMPIONSHIP','')
     return t
     
