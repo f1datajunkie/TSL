@@ -752,7 +752,10 @@ def initDb(dbname='test.db'):
 ```
 
 ```python
-def timingScreenToDB(browser, DB, _table='testTable'):#, period=15):
+import hashlib
+
+#The _table_hash will persist in the function
+def timingScreenToDB(browser, DB, _table='testTable', _table_hash={'hash':''}, resettable=True):#, period=15):
 
     #check we're on the right tab
     setPageTab(browser, 'Classification', preview=False)
@@ -765,6 +768,15 @@ def timingScreenToDB(browser, DB, _table='testTable'):#, period=15):
 
     #Parse out the data
     df = pd.read_html( el.get_attribute('innerHTML'))[0].dropna(axis=1,how='all')
+                     
+    #Get a hash of the table; if it's the same as last time, refresh the page just this once...
+    _table_hash_new =  hashlib.md5(df.to_html().encode('utf-8')).hexdigest()
+    if _table_hash['hash'] == _table_hash_new and resettable:
+        print('hmmm... stuck page? Try a refresh...')
+        browser.refresh()
+        timingScreenToDB(browser, DB, _table, False)
+    _table_hash['hash'] == _table_hash_new
+                     
     #Tidy up the column names
     df.rename(columns={'Time/Gap':'Gap',
                        'Unnamed: 1':'Penalties'}, inplace=True)
