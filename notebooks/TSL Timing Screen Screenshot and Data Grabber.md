@@ -368,6 +368,8 @@ df
 #Create this as a temporary table for a particular session
 #Then think about merging into to a full table overal sessions / events etc
 
+#The Flag is not within the table but can be captured to give a crude indication of flag conditions
+#I wonder if I should also be capturing time of day somewhere as a crude record of sample times?
 classification_table = '''
 CREATE TABLE IF NOT EXISTS  "{_table}" (
   "Pos" INTEGER,
@@ -391,6 +393,7 @@ CREATE TABLE IF NOT EXISTS  "{_table}" (
   "V2" FLOAT,
   "S3" TEXT, 
   "VF" FLOAT,
+  "Flag" TEXT,
   PRIMARY KEY (No, Laps) ON CONFLICT IGNORE
 );
 '''
@@ -774,6 +777,10 @@ def timingScreenToDB(browser, DB, _table='testTable'):#, period=15):
     if 'Best' in df:
         df['BestInS']=df['Best'].apply(getTime)
     
+    #Get the flag status
+    flag = text_value_from_xpath(browser, flag_path )
+    df['Flag'] = flag
+        
     #Upsert the date
     #DB[_table].upsert_all(df.to_dict(orient='records'))
     #insert the data - this assumes the insert conflict ignore definition on the table
