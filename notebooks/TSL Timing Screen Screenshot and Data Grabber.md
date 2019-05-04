@@ -458,7 +458,7 @@ If we grab the classification table with a period slightly less than that of the
 
 The *(car number, lap, previous lap)* combination should also be unique. (I need to think, would that guarantee we capture section times?).
 
-My original method used upserts to prevent collisions, but that's wrong, I think. SQLite lets us add a condirtion to the PK in a table definition that will ignore conflicts, so we can add a car number / lap combination to the tabe as soon as we see it, and then if we upload it again, perhaps with the `TimeGap` reset to `Lap 1` by the lead car starting a new lap, we can just ignore it.
+My original method used upserts to prevent collisions, but that's wrong, I think. SQLite lets us add a condition to the PK in a table definition that will ignore conflicts, so we can add a car number / lap combination to the tabe as soon as we see it, and then if we upload it again, perhaps with the `TimeGap` reset to `Lap 1` by the lead car starting a new lap, we can just ignore it.
 
 ```python
 url = 'https://livetiming.tsl-timing.com/191521'
@@ -466,7 +466,8 @@ browser = webdriver.Firefox(options=options)
 browser.get(url)
 
 #We need a delay after this or we may break the following by trying to look in the page for an element
-#before it';s had time to properly load and render
+#before it's had time to properly load and render
+element = WebDriverWait(browser, 10).until( EC.invisibility_of_element_located((By.ID, undesiredId)))
 ```
 
 ```python
@@ -930,7 +931,7 @@ def waitTimeToStart(tts, delay=120):
 ```python
 def emailReport(info):
     '''Holding pattern - defined below...'''
-    pass
+    print('We could do emailing here....')
 ```
 
 ```python
@@ -956,6 +957,7 @@ sent_email = False #Have we sent an email for this race
 browser = initBrowser(url)
 
 
+
 showpreview=True
 while True:
     
@@ -972,6 +974,7 @@ while True:
     #Need to check we have a valid table name
     #If not, do a delay and then continue back to repeat the loop
     _table = getInfo(browser)['tablename']
+    
     if not _table or _table=='':
         print('Nothing seems to be on the timing screen...Wait a couple of minutes...')
         wait(120)
@@ -1026,6 +1029,7 @@ while True:
         #and generate a heuristic about earliest time race is expected to finish?
         #For some reason, the flag doesn't seem to update in the browser properly?
         flag = text_value_from_xpath(browser, flag_path )
+        
         timingScreenToDB(browser, DB, _table)
         print('.',end='')
 
