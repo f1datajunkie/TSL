@@ -134,7 +134,8 @@ def initBrowser(url, maxwait=10, maxtries=3):
         browser.close()
         maxtries = maxtries-1
         if maxtries:
-            #Try agan with a longer wait
+            #Try again with a longer wait, after a backoff
+            time.sleep(maxwait)
             return initBrowser(url, maxwait*1.5, maxtries)
         
         return None
