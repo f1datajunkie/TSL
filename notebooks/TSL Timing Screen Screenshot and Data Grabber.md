@@ -24,17 +24,17 @@ The plan now is to turn this into a proper development narrative to try to recre
 *Note that the original recipe is easily generalised to grab arbitrary webpages.*
 
 ```python
+%load_ext autoreload
+%autoreload 2
+```
+
+```python
 #Inspired by: https://www.kaggle.com/dierickx3/kaggle-web-scraping-via-headless-firefox-selenium
 #from webdriverdownloader import GeckoDriverDownloader
 #gdd = GeckoDriverDownloader()
 #geckodriver, geckobin = gdd.download_and_install("v0.23.0")
 
 #Alternatively, we can install as part of the container build process
-```
-
-```python
-%load_ext autoreload
-%autoreload 2
 ```
 
 ```python
@@ -68,6 +68,7 @@ url = 'https://livetiming.tsl-timing.com/191209'
 url = 'https://livetiming.tsl-timing.com/191431'#brscc april 6
 #url='https://livetiming.tsl-timing.com/191403' #btcc april 6
 url='https://livetiming.tsl-timing.com/191521' #croft barc april 13
+url='https://livetiming.tsl-timing.com/191851' #donington historic
 ```
 
 Some web pages take time to load. For example, the TSL live timing screens are likely to show a spinny thing when a timing screen page is first loaded.
@@ -443,7 +444,7 @@ CREATE TABLE IF NOT EXISTS  "{_table}" (
 import sqlite3
 from sqlite_utils import Database
 
-dbname='very_new_testlive.db'
+dbname='may4test3.db'
 
 #!rm $dbname
 conn = sqlite3.connect(dbname, timeout=10)
@@ -466,7 +467,7 @@ The *(car number, lap, previous lap)* combination should also be unique. (I need
 My original method used upserts to prevent collisions, but that's wrong, I think. SQLite lets us add a condition to the PK in a table definition that will ignore conflicts, so we can add a car number / lap combination to the tabe as soon as we see it, and then if we upload it again, perhaps with the `TimeGap` reset to `Lap 1` by the lead car starting a new lap, we can just ignore it.
 
 ```python
-url = 'https://livetiming.tsl-timing.com/191521'
+url = 'https://livetiming.tsl-timing.com/191851'
 browser = webdriver.Firefox(options=options)
 browser.get(url)
 
@@ -938,9 +939,9 @@ def waitTimeToStart(tts, delay=120):
     #Seems we don't get negative seconds?
     if tts.days < 0: 
         return 60
-    #If the time is within the presecribed delay period, no need for an extra wait
+    #If the time is within the prescribed delay period, no need for an extra wait
     elif tts.seconds<delay:
-        return 0
+        return tts.seconds
     else:
         return (s-n).seconds - delay
 ```
@@ -949,10 +950,11 @@ def waitTimeToStart(tts, delay=120):
 def emailReport(info):
     '''Holding pattern - defined below...'''
     print('We could do emailing here....')
+    display(Image(info['finalscreen']))
 ```
 
 ```python
-c, DB = initDb('sun14test.db')
+c, DB = initDb('may4test5.db')
 ```
 
 ```python
@@ -967,7 +969,7 @@ period_lap = 95 #This is the time we'll after we record the race as finished bef
 finishedwait=60
 refresh_before_scheduled_start = 120
 
-send_email = False #Do we want to send email
+send_email = True #Do we want to send email
 sent_email = False #Have we sent an email for this race
 
 #If we are in a race
@@ -978,7 +980,7 @@ browser = initBrowser(url)
 showpreview=True
 while True:
     
-    prevSessionTime = None #heurstic to try to spot if we are stuck
+    prevSessionTime = None #heuristic to try to spot if we are stuck
     #If we are stuck, reload the browser
     shoved=False #part of the keep it running heuristic
     
@@ -1036,9 +1038,16 @@ while True:
     awaiting_result=True
     letsgoracing = True
     while race_on and awaiting_result:
+        
+        #If for some reason the process goes to sleep,
+        # ensure we don't add data to the wrong table when we wake up...
+        if _table != getInfo(browser)['tablename']:
+            print('hmmm, did I nod off there?')
+            break
+            
         if letsgoracing:
             print('letsgoracing...')
-            letsgoracing =False
+            letsgoracing = False
             
         #Better to use some heuristics here eg based on time left in sessiontime
         #Only issue there is if a race is red flagged so is race clock/sessionTime?
@@ -1094,7 +1103,8 @@ while True:
                     #html email needs work?
                     #send_mail_html(server, sender_email, receiver_email,
                     #               subject, text, htmltext, files=[final_screen])
-                    emailReport(info)
+                    emailinfo = {'finalscreen':final_screen}
+                    emailReport(emailinfo)
                     sent_email = True
             print('Session should have completely finished...')
             awaiting_result = False
@@ -1115,8 +1125,9 @@ while True:
                 awaiting_result = False
             print('shove..')
             prevSessionTime = sessionTime
+            #browser = initBrowser(url)
+            browser.refresh()
             shoved = True
-            browser = initBrowser(url)
 
 fn = '{}_{}.png'.format(series, session )
 
