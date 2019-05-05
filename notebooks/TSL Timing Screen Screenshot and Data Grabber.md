@@ -352,6 +352,8 @@ for el in els:
     print(el.get_attribute("class").split(' ')[-1])
 ```
 
+The `posIcon` also captures whether the car is in the pit (`posIconInPit`). This may record a car going in to the pit on a lap so the laptime with the pit stop included may be recorded on the following lap.
+
 Let's make a function for that:
 
 ```python
