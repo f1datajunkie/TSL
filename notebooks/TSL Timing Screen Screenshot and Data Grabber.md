@@ -94,6 +94,10 @@ from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.common.by import By
 ```
 
+The following will set the full screen width if there are scroll bars on the body... but what about the scroll bars in a div?
+
+Can we get the scroll width from the correct `div` element?
+
 ```python
 #Set a default screensize...
 #There are other ways of setting up the browser so that we can grab the full browser view,
@@ -148,9 +152,38 @@ def initBrowser(url, maxwait=10, maxtries=3):
 #browser.refresh()
 ```
 
+If the field is large, then the results window needs scrolling. Can we create an option for Selenium to grab the whole timing screen without the scoll bar?
+
+In the following example, we get the default size of the browser, then increase the viewport size to accout for the scrollbars. The 400px size is an esitmate of the default table size. We should really measure this at the time and use that exact figure.
+
+```python
+#Via https://stackoverflow.com/a/52572919/454773
+#document.querySelector('#ResultsTableContainer') ?
+def full_scope_browser_screenshot(browser, outfile, node=''):
+    # document.body.parentNode ; "document.querySelector('#tablebody')"
+    # Ref: https://stackoverflow.com/a/52572919/
+    
+    original_size = browser.get_window_size()
+        
+    w = 'return document.body.parentNode.scrollWidth'
+    h = 'return document.body.parentNode.scrollHeight'
+    if node:
+        #Does this still work if there is no scroll?
+        h = '{h} + {node}.scrollHeight - 395'.format(h=h, node=node)
+
+    required_width = browser.execute_script(w)
+    required_height = browser.execute_script(h)
+    browser.set_window_size(required_width, required_height)
+    browser.save_screenshot( outfile )
+    #browser.find_element_by_tag_name('body').screenshot(path)  # avoids scrollbar? But we want whole timing screen
+    browser.set_window_size(original_size['width'], original_size['height'])
+```
+
 ```python
 browser=initBrowser(url)
-browser.save_screenshot( outfile )
+original_size = browser.get_window_size()
+full_scope_browser_screenshot(browser,outfile, "document.querySelector('#tablebody')")
+#browser.save_screenshot( outfile )
 Image(outfile)
 ```
 
@@ -282,6 +315,7 @@ def setPageTab(browser, tabId='Classification', ofn=None, preview=True, link=Tru
     #Check the page has loaded
     element = WebDriverWait(browser, 10).until( EC.invisibility_of_element_located((By.ID, undesiredId)))
     
+
     #ofn is output filename
     element = browser.find_element_by_id(tabId)
     element.click()
@@ -291,7 +325,14 @@ def setPageTab(browser, tabId='Classification', ofn=None, preview=True, link=Tru
 
     if preview or link:
         #Save the page
-        browser.save_screenshot( ofn )
+        #browser.save_screenshot( ofn )
+        #Check that browser is full scope
+        if tabId=='Classification':
+            full_scope_browser_screenshot(browser, ofn, "document.querySelector('#tablebody')")
+        elif tabId=='Statistics':
+            full_scope_browser_screenshot(browser, ofn, "document.querySelector('#StatsTableContainer')")
+        else:
+            browser.save_screenshot( ofn )
         print('screenshot saved to {}'.format(ofn))
         
         if preview:
