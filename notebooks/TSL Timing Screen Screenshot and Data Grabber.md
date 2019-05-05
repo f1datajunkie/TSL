@@ -994,6 +994,8 @@ def emailReport(info):
     '''Holding pattern - defined below...'''
     print('We could do emailing here....')
     display(Image(info['finalscreen']))
+    display(Image(info['statisticsscreen']))
+    
 ```
 
 ```python
@@ -1127,6 +1129,7 @@ while True:
                 #keep refreshing
                 browser = initBrowser(url)
                 final_screen = setPageTab(browser,'Classification', preview=False, link=True)
+                statistics_screen = setPageTab(browser, 'Statistics',preview=False, link=True)
                 #TO DO - a lot of the following is dependent on things later in the notebook...
                 if send_email and not sent_email:
                     #server = smtplib.SMTP_SSL("smtp.gmail.com", port, context=context)
@@ -1146,7 +1149,9 @@ while True:
                     #html email needs work?
                     #send_mail_html(server, sender_email, receiver_email,
                     #               subject, text, htmltext, files=[final_screen])
-                    emailinfo = {'finalscreen':final_screen}
+                    emailinfo = {'finalscreen':final_screen,
+                                 'statisticsscreen': statistics_screen}
+
                     emailReport(emailinfo)
                     sent_email = True
             print('Session should have completely finished...')
