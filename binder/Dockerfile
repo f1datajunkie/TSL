@@ -30,7 +30,7 @@ RUN chown -R ${NB_USER} ${HOME}
 USER $NB_UID
 
 #Install Selenium python package
-RUN pip install --no-cache selenium
+RUN pip install --no-cache selenium matplotlib
 
 
 ##By the by, there is also a Python package for installing geckodriver
