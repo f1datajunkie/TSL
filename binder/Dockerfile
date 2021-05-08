@@ -32,6 +32,7 @@ USER $NB_UID
 #Install Selenium python package
 RUN pip install --no-cache selenium matplotlib pandas lxml sqlite_utils
 
+RUN pip install --no-cache git+https://github.com/simonw/jupyterserverproxy-datasette-demo.git
 
 ##By the by, there is also a Python package for installing geckodriver
 #RUN pip install --no-cache webdriverdownloader
